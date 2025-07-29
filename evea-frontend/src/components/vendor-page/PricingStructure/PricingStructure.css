@@ -1,0 +1,142 @@
+/* src/components/vendor-page/PricingStructure/PricingStructure.css */
+.pricing-structure-section {
+  background: var(--bg-primary);
+  position: relative;
+}
+
+.pricing-header {
+  text-align: center;
+  margin-bottom: var(--spacing-2xl);
+}
+
+.pricing-comparison {
+  margin-bottom: var(--spacing-2xl);
+}
+
+.comparison-table {
+  background: white;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--bg-tertiary);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+
+.table-header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--bg-tertiary);
+}
+
+.header-item {
+  padding: var(--spacing-lg);
+  font-weight: 700;
+  text-align: center;
+  position: relative;
+}
+
+.header-item.featured {
+  background: var(--gradient-primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  position: relative;
+}
+
+.featured-badge {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent-color);
+  color: white;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.table-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  border-bottom: 1px solid var(--bg-tertiary);
+}
+
+.table-row:last-child {
+  border-bottom: none;
+}
+
+.row-label {
+  padding: var(--spacing-lg);
+  font-weight: 600;
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+}
+
+.row-value {
+  padding: var(--spacing-lg);
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  font-weight: 600;
+}
+
+.row-value.featured {
+  background: rgba(139, 38, 53, 0.05);
+  color: var(--primary-color);
+}
+
+.check-icon {
+  color: #10B981;
+}
+
+.x-icon {
+  color: #EF4444;
+}
+
+.total-row {
+  background: var(--bg-secondary);
+  font-weight: 700;
+}
+
+.row-value.total {
+  font-size: 1.125rem;
+}
+
+.pricing-features {
+  text-align: center;
+}
+
+.features-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-xl);
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--spacing-md);
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.feature-check {
+  color: var(--primary-color);
+  flex-shrink: 0;
+}

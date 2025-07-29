@@ -1,0 +1,17 @@
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs at root level
+*.log
+logs/
+
+# Temporary files
+temp/
+*.tmp
+
+# Environment files (backup safety)
+.env.backup
+.env.temp
