@@ -1,4 +1,4 @@
-/* src/components/common/Header/Header.css */
+/* src/components/common/Header/Header.css - Updated with Auth Integration */
 
 .header {
   position: fixed;
@@ -165,7 +165,7 @@
   background: var(--gradient-primary);
   color: white;
   text-decoration: none;
-  
+  padding: var(--spacing-sm) var(--spacing-lg);
   border-radius: var(--radius-lg);
   font-weight: 600;
   font-size: 0.9rem;
@@ -175,9 +175,21 @@
   cursor: pointer;
 }
 
+.cta-button.secondary {
+  background: white;
+  color: var(--primary-color);
+  border: 2px solid var(--primary-color);
+  box-shadow: none;
+}
+
 .cta-button:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
+}
+
+.cta-button.secondary:hover {
+  background: var(--primary-color);
+  color: white;
 }
 
 .cta-button:active {
@@ -228,7 +240,7 @@
 }
 
 /* ========================================
-   USER MENU
+   USER MENU - ENHANCED
    ======================================== */
 
 .user-menu-container {
@@ -238,13 +250,14 @@
 .user-menu-trigger {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
   background: white;
   border: 1px solid var(--bg-tertiary);
   border-radius: var(--radius-lg);
   padding: var(--spacing-xs);
   cursor: pointer;
   transition: all var(--transition-fast);
+  min-width: 200px;
 }
 
 .user-menu-trigger:hover {
@@ -256,16 +269,58 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   background: var(--gradient-primary);
   border-radius: var(--radius-md);
   color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+}
+
+.user-initials {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.user-info-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+
+.user-name-preview {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.user-role-preview {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .dropdown-icon {
   transition: transform var(--transition-fast);
   color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 .dropdown-icon.rotated {
@@ -276,12 +331,12 @@
   position: absolute;
   top: calc(100% + var(--spacing-xs));
   right: 0;
-  min-width: 220px;
+  min-width: 280px;
   background: white;
   border: 1px solid var(--bg-tertiary);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  padding: var(--spacing-md);
+  padding: var(--spacing-lg);
   z-index: var(--z-dropdown);
   animation: dropdownSlideIn 0.2s ease-out;
 }
@@ -304,17 +359,31 @@
 .user-info {
   display: flex;
   flex-direction: column;
+  gap: 0.25rem;
 }
 
 .user-name {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .user-email {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--text-secondary);
+}
+
+.user-role {
+  font-size: 0.75rem;
+  color: var(--primary-color);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  background: rgba(139, 38, 53, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+  width: fit-content;
 }
 
 .dropdown-divider {
@@ -335,9 +404,10 @@
   gap: var(--spacing-sm);
   color: var(--text-primary);
   text-decoration: none;
-  padding: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
   font-size: 0.9rem;
+  font-weight: 500;
   transition: all var(--transition-fast);
   background: none;
   border: none;
@@ -381,7 +451,7 @@
 }
 
 /* ========================================
-   MOBILE NAVIGATION
+   MOBILE NAVIGATION - ENHANCED
    ======================================== */
 
 .nav-mobile {
@@ -435,15 +505,18 @@
 
 .mobile-cta {
   margin-bottom: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
 }
 
+.mobile-marketplace-button,
 .mobile-plan-button {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
   width: 100%;
-  background: var(--gradient-primary);
   color: white;
   text-decoration: none;
   padding: var(--spacing-lg);
@@ -453,6 +526,15 @@
   transition: all var(--transition-fast);
 }
 
+.mobile-marketplace-button {
+  background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+}
+
+.mobile-plan-button {
+  background: var(--gradient-primary);
+}
+
+.mobile-marketplace-button:hover,
 .mobile-plan-button:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
@@ -498,6 +580,7 @@
   box-shadow: var(--shadow-md);
 }
 
+/* Mobile User Section - Enhanced */
 .mobile-user-section {
   border-top: 1px solid var(--bg-tertiary);
   padding-top: var(--spacing-lg);
@@ -517,27 +600,54 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   background: var(--gradient-primary);
   border-radius: var(--radius-lg);
   color: white;
+  font-weight: 700;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.mobile-user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
 }
 
 .mobile-user-details {
   display: flex;
   flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .mobile-user-name {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
-  font-size: 1.1rem;
+  font-size: 1.125rem;
 }
 
 .mobile-user-email {
   color: var(--text-secondary);
   font-size: 0.9rem;
+}
+
+.mobile-user-role {
+  font-size: 0.75rem;
+  color: var(--primary-color);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  background: rgba(139, 38, 53, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+  width: fit-content;
 }
 
 .mobile-user-links {
@@ -597,6 +707,16 @@
    RESPONSIVE DESIGN
    ======================================== */
 
+@media (max-width: 1200px) {
+  .user-menu-trigger {
+    min-width: 180px;
+  }
+  
+  .user-dropdown {
+    min-width: 260px;
+  }
+}
+
 @media (max-width: 992px) {
   .nav-desktop {
     display: none;
@@ -616,6 +736,10 @@
 
   .logo-tagline {
     display: none;
+  }
+  
+  .user-menu-trigger {
+    min-width: 150px;
   }
 }
 
@@ -640,6 +764,24 @@
   .heart-icon {
     width: 18px;
     height: 18px;
+  }
+
+  .user-menu-trigger {
+    min-width: 120px;
+    padding: 0.25rem;
+  }
+  
+  .user-avatar {
+    width: 32px;
+    height: 32px;
+  }
+  
+  .user-name-preview {
+    font-size: 0.8rem;
+  }
+  
+  .user-role-preview {
+    font-size: 0.7rem;
   }
 
   .mobile-nav-content {
@@ -681,6 +823,14 @@
     width: 16px;
     height: 16px;
   }
+  
+  .user-menu-trigger {
+    min-width: 100px;
+  }
+  
+  .user-info-preview {
+    display: none;
+  }
 
   .mobile-nav-content {
     padding: var(--spacing-sm);
@@ -700,7 +850,8 @@
   .mobile-menu-btn,
   .nav-mobile,
   .dropdown-icon,
-  .user-dropdown {
+  .user-dropdown,
+  .user-menu-trigger {
     transition: none;
   }
 
@@ -719,7 +870,8 @@
 .btn-primary:focus,
 .btn-secondary:focus,
 .mobile-menu-btn:focus,
-.user-menu-trigger:focus {
+.user-menu-trigger:focus,
+.dropdown-link:focus {
   outline: 2px solid var(--primary-color);
   outline-offset: 2px;
 }

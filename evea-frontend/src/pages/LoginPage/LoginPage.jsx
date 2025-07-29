@@ -1,7 +1,8 @@
 // src/pages/LoginPage/Login.jsx
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Heart, Globe, Users } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Heart, Globe, Users, AlertCircle } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 import './LoginPage.css';
 
 const Login = () => {
@@ -10,29 +11,117 @@ const Login = () => {
     password: ''
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
+  
+  // Auth context
+  const { login, isLoading, error, clearError } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Get the intended destination from location state
+  const from = location.state?.from || '/shop'; // Default to ecommerce page
+
+  useEffect(() => {
+    // Clear any existing errors when component mounts
+    clearError();
+  }, [clearError]);
+
+  useEffect(() => {
+    // Clear form errors when auth error changes
+    if (error) {
+      setFormErrors({ general: error });
+    } else {
+      setFormErrors({});
+    }
+  }, [error]);
+
+  const validateForm = () => {
+    const errors = {};
+
+    // Email validation
+    if (!formData.email) {
+      errors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+
+    // Password validation
+    if (!formData.password) {
+      errors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      errors.password = 'Password must be at least 6 characters';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+
+    // Clear field error when user starts typing
+    if (formErrors[name]) {
+      setFormErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+
+    // Clear general error when user makes changes
+    if (formErrors.general) {
+      setFormErrors(prev => ({
+        ...prev,
+        general: ''
+      }));
+      clearError();
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      navigate('/dashboard');
-    }, 2000);
+    // Clear previous errors
+    setFormErrors({});
+    clearError();
+
+    // Validate form
+    if (!validateForm()) {
+      return;
+    }
+
+    try {
+      const result = await login(formData.email, formData.password);
+      
+      if (result.success) {
+        // Redirect based on user role or intended destination
+        if (result.user.role === 'vendor') {
+          navigate('/vendor-dashboard', { replace: true });
+        } else {
+          navigate(from, { replace: true });
+        }
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      setFormErrors({ general: 'An unexpected error occurred. Please try again.' });
+    }
   };
 
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
+  };
+
+  const handleSocialLogin = (provider) => {
+    // Implement social login here
+    console.log(`Social login with ${provider}`);
+    // For now, just show a message
+    setFormErrors({ 
+      general: `${provider} login will be available soon!` 
+    });
   };
 
   return (
@@ -93,13 +182,31 @@ const Login = () => {
                 </p>
               </div>
 
+              {/* Error Display */}
+              {formErrors.general && (
+                <div className="error-banner">
+                  <AlertCircle size={20} />
+                  <span>{formErrors.general}</span>
+                </div>
+              )}
+
               {/* Social Login */}
               <div className="social-login">
-                <button className="social-btn google-btn">
+                <button 
+                  type="button"
+                  className="social-btn google-btn"
+                  onClick={() => handleSocialLogin('Google')}
+                  disabled={isLoading}
+                >
                   <Globe size={20} />
                   <span>Continue with Google</span>
                 </button>
-                <button className="social-btn facebook-btn">
+                <button 
+                  type="button"
+                  className="social-btn facebook-btn"
+                  onClick={() => handleSocialLogin('Facebook')}
+                  disabled={isLoading}
+                >
                   <Users size={20} />
                   <span>Continue with Facebook</span>
                 </button>
@@ -110,7 +217,7 @@ const Login = () => {
               </div>
 
               {/* Login Form */}
-              <form onSubmit={handleSubmit} className="login-form">
+              <form onSubmit={handleSubmit} className="login-form" noValidate>
                 <div className="form-group">
                   <label className="form-label">Email Address</label>
                   <div className="input-wrapper">
@@ -120,11 +227,16 @@ const Login = () => {
                       name="email"
                       value={formData.email}
                       onChange={handleChange}
-                      className="form-input"
+                      className={`form-input ${formErrors.email ? 'error' : ''}`}
                       placeholder="Enter your email"
-                      required
+                      disabled={isLoading}
+                      autoComplete="email"
+                      aria-describedby={formErrors.email ? 'email-error' : undefined}
                     />
                   </div>
+                  {formErrors.email && (
+                    <span id="email-error" className="field-error">{formErrors.email}</span>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -136,23 +248,35 @@ const Login = () => {
                       name="password"
                       value={formData.password}
                       onChange={handleChange}
-                      className="form-input"
+                      className={`form-input ${formErrors.password ? 'error' : ''}`}
                       placeholder="Enter your password"
-                      required
+                      disabled={isLoading}
+                      autoComplete="current-password"
+                      aria-describedby={formErrors.password ? 'password-error' : undefined}
                     />
                     <button
                       type="button"
                       className="password-toggle"
                       onClick={togglePasswordVisibility}
+                      disabled={isLoading}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
                     >
                       {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                   </div>
+                  {formErrors.password && (
+                    <span id="password-error" className="field-error">{formErrors.password}</span>
+                  )}
                 </div>
 
                 <div className="form-options">
                   <label className="checkbox-wrapper">
-                    <input type="checkbox" />
+                    <input 
+                      type="checkbox" 
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      disabled={isLoading}
+                    />
                     <span className="checkmark"></span>
                     Remember me
                   </label>
@@ -161,7 +285,12 @@ const Login = () => {
                   </Link>
                 </div>
 
-                <button type="submit" className="login-btn" disabled={isLoading}>
+                <button 
+                  type="submit" 
+                  className="login-btn" 
+                  disabled={isLoading}
+                  aria-describedby="login-button-desc"
+                >
                   {isLoading ? (
                     <>
                       <div className="loading-spinner"></div>
@@ -174,6 +303,9 @@ const Login = () => {
                     </>
                   )}
                 </button>
+                <span id="login-button-desc" className="sr-only">
+                  Click to sign in to your account
+                </span>
               </form>
 
               <div className="form-footer">
@@ -183,6 +315,13 @@ const Login = () => {
                     Create one here
                   </Link>
                 </p>
+                
+                {/* Help Section */}
+                <div className="help-section">
+                  <p className="help-text">
+                    Need help? <Link to="/contact" className="help-link">Contact Support</Link>
+                  </p>
+                </div>
               </div>
             </div>
           </div>

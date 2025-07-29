@@ -1,0 +1,152 @@
+/* src/components/common/LoadingSpinner/LoadingSpinner.css */
+
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.loading-container.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  z-index: 9999;
+}
+
+.loading-container.inline {
+  padding: 2rem;
+  min-height: 200px;
+}
+
+.loading-spinner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner-small {
+  width: 32px;
+  height: 32px;
+}
+
+.spinner-medium {
+  width: 48px;
+  height: 48px;
+}
+
+.spinner-large {
+  width: 64px;
+  height: 64px;
+}
+
+.spinner-icon {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--primary-color, #8B2635), var(--secondary-color, #6A1B9A));
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.heart-icon {
+  color: white;
+  width: 60%;
+  height: 60%;
+  stroke-width: 2.5;
+}
+
+.spinner-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 3px solid transparent;
+  border-top: 3px solid var(--primary-color, #8B2635);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.loading-message {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-secondary, #666);
+  text-align: center;
+  margin: 0;
+  animation: fadeInOut 2s ease-in-out infinite;
+}
+
+/* Animations */
+@keyframes spin {
+  0% { 
+    transform: rotate(0deg); 
+  }
+  100% { 
+    transform: rotate(360deg); 
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% { 
+    transform: scale(1.05);
+    opacity: 0.8;
+  }
+}
+
+@keyframes fadeInOut {
+  0%, 100% { 
+    opacity: 0.6; 
+  }
+  50% { 
+    opacity: 1; 
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .spinner-large {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .spinner-medium {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .loading-message {
+    font-size: 0.9rem;
+  }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .spinner-ring,
+  .spinner-icon,
+  .loading-message {
+    animation: none;
+  }
+  
+  .spinner-ring {
+    border-top-color: var(--primary-color, #8B2635);
+  }
+  
+  .loading-message {
+    opacity: 1;
+  }
+}
