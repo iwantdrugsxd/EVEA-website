@@ -1,3 +1,4 @@
+// evea-backend/src/models/User.js - Updated with Google OAuth support
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
@@ -14,8 +15,18 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
+    required: function() {
+      // Password required only if not using Google OAuth
+      return !this.googleId;
+    },
     minlength: [8, 'Password must be at least 8 characters'],
+    select: false
+  },
+  // Google OAuth Integration
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true, // Allows null values while maintaining uniqueness
     select: false
   },
   firstName: {
@@ -68,6 +79,13 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   
+  // Authentication method tracking
+  authMethod: {
+    type: String,
+    enum: ['local', 'google'],
+    default: 'local'
+  },
+  
   // Verification tokens
   emailVerificationToken: {
     type: String,
@@ -101,13 +119,13 @@ const userSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Additional indexes for performance (only add non-unique indexes here)
-// Email and phone already have unique indexes from field definition
+// Additional indexes for performance (googleId index is automatic due to unique: true)
 userSchema.index({ emailVerificationToken: 1 });
 userSchema.index({ passwordResetToken: 1 });
 userSchema.index({ lockUntil: 1 });
 userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
+userSchema.index({ authMethod: 1 });
 
 // Virtual for full name
 userSchema.virtual('fullName').get(function() {
@@ -119,8 +137,13 @@ userSchema.virtual('isLocked').get(function() {
   return !!(this.lockUntil && this.lockUntil > Date.now());
 });
 
-// Hash password before saving
+// Hash password before saving (only for local auth)
 userSchema.pre('save', async function(next) {
+  // Skip password hashing for Google OAuth users
+  if (this.googleId && !this.isModified('password')) {
+    return next();
+  }
+  
   if (!this.isModified('password')) return next();
   
   try {
@@ -135,9 +158,22 @@ userSchema.pre('save', async function(next) {
   }
 });
 
-// Compare password method
+// Set authentication method before saving
+userSchema.pre('save', function(next) {
+  if (this.isNew) {
+    this.authMethod = this.googleId ? 'google' : 'local';
+  }
+  next();
+});
+
+// Compare password method (only for local auth)
 userSchema.methods.comparePassword = async function(candidatePassword) {
   try {
+    // Skip password comparison for Google OAuth users
+    if (this.googleId && this.authMethod === 'google') {
+      throw new Error('Password comparison not available for Google OAuth users');
+    }
+    
     console.log('🔍 Comparing password for user:', this.email);
     const isMatch = await bcrypt.compare(candidatePassword, this.password);
     console.log('✅ Password comparison result:', isMatch);
