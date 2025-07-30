@@ -124,7 +124,7 @@ function App() {
                   ================================ */}
               
               {/* Home Route */}
-              <Route path="/" element={<HomePage />} />
+              <Route path="/" element={<VendorDashboard />} />
               
               {/* Features Route */}
               <Route path="/features" element={<FeaturesPage />} />

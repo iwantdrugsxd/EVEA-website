@@ -1,330 +1,330 @@
-// src/pages/VendorDashboard/VendorDashboard.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   LayoutDashboard, Package, RefreshCw, Bell, User, Settings,
-  TrendingUp, ShoppingBag, IndianRupee, Star, MessageSquare, HelpCircle
+  TrendingUp, ShoppingBag, IndianRupee, Star, MessageSquare, 
+  LogOut, Menu, X, Home, Eye, Clock, CheckCircle
 } from 'lucide-react';
 
-// Import page components
-import OrdersPage from '../OrdersPage/OrdersPage';
-import RefundRequestsPage from '../RefundRequestsPage/RefundRequestsPage';
-import InventoryPage from '../InventoryPage/InventoryPage';
-import NotificationsPage from '../NotificationsPage/NotificationsPage';
-import BusinessProfilePage from '../BusinessProfilePage/BusinessProfilePage';
+// Import services
+import { getVendorProfile, getDashboardStats, logoutVendor } from '../../services/vendorAPI';
+import { toast } from 'react-toastify';
+
+// Import dashboard components (to be created)
+import DashboardOverview from '../../components/VendorDashboard/DashboardOverview';
+import OrdersManagement from '../../components/VendorDashboard/OrdersManagement';
+import ServicesManagement from '../../components/VendorDashboard/ServicesManagement';
+import ProfileManagement from '../../components/VendorDashboard/ProfileManagement';
+import RegistrationStatus from '../../components/VendorDashboard/RegistrationStatus';
 
 import './VendorDashboard.css';
 
 const VendorDashboard = () => {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [vendor, setVendor] = useState(null);
+  const [dashboardStats, setDashboardStats] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [notifications] = useState(3);
 
-  // Sidebar navigation items
+  // Navigation items
   const navigationItems = [
     {
       id: 'dashboard',
       name: 'Dashboard Overview',
       icon: <LayoutDashboard size={20} />,
-      badge: null,
-      component: null
+      component: DashboardOverview
+    },
+    {
+      id: 'status',
+      name: 'Registration Status',
+      icon: <Clock size={20} />,
+      component: RegistrationStatus,
+      badge: vendor?.registrationStatus === 'pending_review' ? 'pending' : null
     },
     {
       id: 'orders',
       name: 'Orders',
       icon: <ShoppingBag size={20} />,
       badge: 12,
-      component: OrdersPage
+      component: OrdersManagement
     },
     {
-      id: 'refunds',
-      name: 'Refund Requests',
-      icon: <RefreshCw size={20} />,
-      badge: 3,
-      component: RefundRequestsPage
-    },
-    {
-      id: 'inventory',
-      name: 'Inventory',
+      id: 'services',
+      name: 'Services',
       icon: <Package size={20} />,
-      badge: null,
-      component: InventoryPage
-    },
-    {
-      id: 'notifications',
-      name: 'Notifications',
-      icon: <Bell size={20} />,
-      badge: notifications,
-      component: NotificationsPage
+      component: ServicesManagement
     },
     {
       id: 'profile',
       name: 'Business Profile',
       icon: <User size={20} />,
-      badge: null,
-      component: BusinessProfilePage
+      component: ProfileManagement
+    },
+    {
+      id: 'notifications',
+      name: 'Notifications',
+      icon: <Bell size={20} />,
+      badge: notifications
     }
   ];
 
- 
-  // Dashboard Overview Component
-  const DashboardOverview = () => (
-    <div className="dashboard-overview-page">
-      {/* Welcome Section */}
-      <div className="welcome-section">
-        <div className="welcome-content">
-          <h1 className="welcome-title">Welcome back, Rajesh!</h1>
-          <p className="welcome-subtitle">Here's what's happening with your business today</p>
-        </div>
-        <div className="welcome-actions">
-          <button className="btn-primary">
-            <Package size={18} />
-            Add New Service
-          </button>
-          <button className="btn-secondary">
-            <TrendingUp size={18} />
-            View Analytics
-          </button>
-        </div>
-      </div>
-
-      {/* Key Metrics Grid */}
-      <div className="metrics-grid">
-        <div className="metric-card revenue">
-          <div className="metric-icon">
-            <IndianRupee size={32} />
-          </div>
-          <div className="metric-content">
-            <h3 className="metric-title">Total Revenue</h3>
-            <div className="metric-value">₹12,45,000</div>
-            <div className="metric-change positive">
-              <TrendingUp size={14} />
-              +23.5% from last month
-            </div>
-          </div>
-          <div className="metric-chart">
-            <div className="chart-bar" style={{height: '60%'}}></div>
-            <div className="chart-bar" style={{height: '80%'}}></div>
-            <div className="chart-bar" style={{height: '70%'}}></div>
-            <div className="chart-bar" style={{height: '90%'}}></div>
-            <div className="chart-bar" style={{height: '100%'}}></div>
-          </div>
-        </div>
-
-        <div className="metric-card orders">
-          <div className="metric-icon">
-            <ShoppingBag size={32} />
-          </div>
-          <div className="metric-content">
-            <h3 className="metric-title">Total Orders</h3>
-            <div className="metric-value">124</div>
-            <div className="metric-change positive">
-              <TrendingUp size={14} />
-              +18 new orders
-            </div>
-          </div>
-          <div className="metric-progress">
-            <div className="progress-bar">
-              <div className="progress-fill" style={{width: '75%'}}></div>
-            </div>
-            <span className="progress-text">75% of monthly goal</span>
-          </div>
-        </div>
-
-        <div className="metric-card rating">
-          <div className="metric-icon">
-            <Star size={32} />
-          </div>
-          <div className="metric-content">
-            <h3 className="metric-title">Customer Rating</h3>
-            <div className="metric-value">4.9</div>
-            <div className="metric-change positive">
-              <Star size={14} />
-              98% positive reviews
-            </div>
-          </div>
-          <div className="rating-stars">
-            {[1,2,3,4,5].map(star => (
-              <Star key={star} size={16} className="star-filled" />
-            ))}
-          </div>
-        </div>
-
-        <div className="metric-card bookings">
-          <div className="metric-icon">
-            <Package size={32} />
-          </div>
-          <div className="metric-content">
-            <h3 className="metric-title">Active Services</h3>
-            <div className="metric-value">8</div>
-            <div className="metric-change neutral">
-              <Package size={14} />
-              3 services available
-            </div>
-          </div>
-          <div className="services-preview">
-            <div className="service-dot active"></div>
-            <div className="service-dot active"></div>
-            <div className="service-dot active"></div>
-            <div className="service-dot"></div>
-            <div className="service-dot"></div>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Activity */}
-      <div className="activity-section">
-        <div className="section-header">
-          <h2 className="section-title">Recent Activity</h2>
-          <button className="view-all-btn">View All</button>
-        </div>
-        
-        <div className="activity-grid">
-          <div className="activity-card">
-            <div className="activity-icon new-order">
-              <ShoppingBag size={20} />
-            </div>
-            <div className="activity-content">
-              <h4 className="activity-title">New Wedding Photography Booking</h4>
-              <p className="activity-description">Priya Sharma booked your premium package for March 15th</p>
-              <div className="activity-meta">
-                <span className="activity-amount">₹80,000</span>
-                <span className="activity-time">2 hours ago</span>
-              </div>
-            </div>
-            <div className="activity-status new">New</div>
-          </div>
-
-          <div className="activity-card">
-            <div className="activity-icon payment">
-              <IndianRupee size={20} />
-            </div>
-            <div className="activity-content">
-              <h4 className="activity-title">Payment Received</h4>
-              <p className="activity-description">Corporate event photography payment completed</p>
-              <div className="activity-meta">
-                <span className="activity-amount">₹1,20,000</span>
-                <span className="activity-time">5 hours ago</span>
-              </div>
-            </div>
-            <div className="activity-status completed">Paid</div>
-          </div>
-
-          <div className="activity-card">
-            <div className="activity-icon review">
-              <Star size={20} />
-            </div>
-            <div className="activity-content">
-              <h4 className="activity-title">5-Star Review Received</h4>
-              <p className="activity-description">"Amazing photography service! Highly recommended"</p>
-              <div className="activity-meta">
-                <span className="activity-rating">⭐⭐⭐⭐⭐</span>
-                <span className="activity-time">1 day ago</span>
-              </div>
-            </div>
-            <div className="activity-status review">Review</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="quick-actions-section">
-        <h2 className="section-title">Quick Actions</h2>
-        <div className="quick-actions-grid">
-          <button className="quick-action-card" onClick={() => setActiveTab('inventory')}>
-            <div className="quick-action-icon">
-              <Package size={24} />
-            </div>
-            <h3>Manage Services</h3>
-            <p>Add, edit, or remove your services</p>
-          </button>
-
-          <button className="quick-action-card" onClick={() => setActiveTab('orders')}>
-            <div className="quick-action-icon">
-              <ShoppingBag size={24} />
-            </div>
-            <h3>View Orders</h3>
-            <p>Check new bookings and manage orders</p>
-          </button>
-
-          <button className="quick-action-card" onClick={() => setActiveTab('profile')}>
-            <div className="quick-action-icon">
-              <User size={24} />
-            </div>
-            <h3>Update Profile</h3>
-            <p>Edit your business information</p>
-          </button>
-
-          <button className="quick-action-card" onClick={() => setActiveTab('notifications')}>
-            <div className="quick-action-icon">
-              <Bell size={24} />
-            </div>
-            <h3>Notifications</h3>
-            <p>Check alerts and messages</p>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderCurrentPage = () => {
-    const activeItem = navigationItems.find(item => item.id === activeTab);
-    if (activeItem && activeItem.component) {
-      const Component = activeItem.component;
-      return <Component />;
+  // Load vendor data on mount
+  useEffect(() => {
+    const token = localStorage.getItem('vendorToken');
+    if (!token) {
+      navigate('/vendor-login');
+      return;
     }
-    return <DashboardOverview />;
+
+    loadVendorData();
+  }, [navigate]);
+
+  // Handle URL tab parameter
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && navigationItems.find(item => item.id === tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
+
+  const loadVendorData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Load vendor profile and dashboard stats in parallel
+      const [profileResponse, statsResponse] = await Promise.all([
+        getVendorProfile(),
+        getDashboardStats()
+      ]);
+
+      setVendor(profileResponse.data.vendor);
+      setDashboardStats(statsResponse.data.stats);
+      
+    } catch (error) {
+      console.error('Failed to load vendor data:', error);
+      if (error.message?.includes('401') || error.message?.includes('unauthorized')) {
+        localStorage.removeItem('vendorToken');
+        localStorage.removeItem('vendorData');
+        navigate('/vendor-login');
+      } else {
+        toast.error('Failed to load dashboard data');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setSearchParams({ tab: tabId });
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutVendor();
+      localStorage.removeItem('vendorToken');
+      localStorage.removeItem('vendorData');
+      toast.success('Logged out successfully');
+      navigate('/vendor-login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Clear local storage even if API call fails
+      localStorage.removeItem('vendorToken');
+      localStorage.removeItem('vendorData');
+      navigate('/vendor-login');
+    }
+  };
+
+  const getStatusBadge = () => {
+    if (!vendor) return null;
+    
+    const statusConfig = {
+      'pending_documents': { text: 'Pending Documents', class: 'warning' },
+      'pending_review': { text: 'Under Review', class: 'info' },
+      'approved': { text: 'Approved', class: 'success' },
+      'rejected': { text: 'Action Required', class: 'error' },
+      'suspended': { text: 'Suspended', class: 'error' }
+    };
+
+    const config = statusConfig[vendor.registrationStatus];
+    if (!config) return null;
+
+    return (
+      <div className={`status-badge ${config.class}`}>
+        {config.text}
+      </div>
+    );
+  };
+
+  const renderCurrentTab = () => {
+    const currentItem = navigationItems.find(item => item.id === activeTab);
+    if (!currentItem?.component) {
+      return <div>Component not found</div>;
+    }
+
+    const Component = currentItem.component;
+    return (
+      <Component 
+        vendor={vendor}
+        dashboardStats={dashboardStats}
+        onDataUpdate={loadVendorData}
+      />
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <div className="vendor-dashboard loading">
+        <div className="loading-spinner">
+          <div className="spinner"></div>
+          <p>Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="vendor-dashboard">
-      {/* Fixed Sidebar */}
-      <aside className="dashboard-sidebar fixed-sidebar">
+      {/* Sidebar */}
+      <div className={`dashboard-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         {/* Sidebar Header */}
-        
-        
+        <div className="sidebar-header">
+          <div className="vendor-profile">
+            <div className="vendor-avatar">
+              <img 
+                src={vendor?.profileImage || '/default-avatar.png'} 
+                alt="Vendor" 
+              />
+              <div className="status-indicator"></div>
+            </div>
+            {!sidebarCollapsed && (
+              <div className="vendor-info">
+                <h3 className="vendor-name">
+                  {vendor?.businessInfo?.businessName || 'Vendor'}
+                </h3>
+                <span className="vendor-category">
+                  {vendor?.primaryCategories?.[0] || 'Event Services'}
+                </span>
+                {getStatusBadge()}
+              </div>
+            )}
+          </div>
+        </div>
 
-       
+        {/* Sidebar Stats */}
+        {!sidebarCollapsed && dashboardStats && (
+          <div className="sidebar-stats">
+            <div className="quick-stat">
+              <div className="stat-icon revenue">
+                <IndianRupee size={20} />
+              </div>
+              <div className="stat-content">
+                <span className="stat-value">₹{dashboardStats.totalRevenue?.toLocaleString() || '0'}</span>
+                <span className="stat-label">Total Revenue</span>
+              </div>
+            </div>
 
-        {/* Navigation Menu */}
-        <nav className="sidebar-navigation">
-          <ul className="nav-list">
-            {navigationItems.map((item) => (
-              <li key={item.id} className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === item.id ? 'active' : ''}`}
-                  onClick={() => setActiveTab(item.id)}
-                >
-                  <div className="nav-icon">
-                    {item.icon}
-                  </div>
-                  <span className="nav-text">{item.name}</span>
+            <div className="quick-stat">
+              <div className="stat-icon rating">
+                <Star size={20} />
+              </div>
+              <div className="stat-content">
+                <span className="stat-value">{dashboardStats.averageRating?.toFixed(1) || '0.0'}</span>
+                <span className="stat-label">Avg Rating</span>
+              </div>
+            </div>
+
+            <div className="quick-stat">
+              <div className="stat-icon orders">
+                <ShoppingBag size={20} />
+              </div>
+              <div className="stat-content">
+                <span className="stat-value">{dashboardStats.totalBookings || '0'}</span>
+                <span className="stat-label">Total Orders</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Navigation */}
+        <nav className="sidebar-nav">
+          {navigationItems.map((item) => (
+            <button
+              key={item.id}
+              className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
+              onClick={() => handleTabChange(item.id)}
+            >
+              <div className="nav-icon">{item.icon}</div>
+              {!sidebarCollapsed && (
+                <>
+                  <span className="nav-label">{item.name}</span>
                   {item.badge && (
-                    <span className="nav-badge">{item.badge}</span>
+                    <div className={`nav-badge ${typeof item.badge === 'string' ? item.badge : ''}`}>
+                      {typeof item.badge === 'number' ? item.badge : ''}
+                    </div>
                   )}
-                </button>
-              </li>
-            ))}
-          </ul>
+                </>
+              )}
+            </button>
+          ))}
         </nav>
 
-        {/* Support Section */}
-        <div className="sidebar-support">
-          <button className="support-button">
-            <HelpCircle size={16} />
-            <span>Help & Support</span>
+        {/* Sidebar Footer */}
+        <div className="sidebar-footer">
+          <button className="nav-item" onClick={() => navigate('/')}>
+            <div className="nav-icon"><Home size={20} /></div>
+            {!sidebarCollapsed && <span className="nav-label">Visit Site</span>}
           </button>
-          <button className="chat-button">
-            <MessageSquare size={16} />
-            <span>Live Chat</span>
+          
+          <button className="nav-item" onClick={handleLogout}>
+            <div className="nav-icon"><LogOut size={20} /></div>
+            {!sidebarCollapsed && <span className="nav-label">Logout</span>}
           </button>
         </div>
-      </aside>
+      </div>
 
-      {/* Main Content Area - No Top Header */}
-      <main className="dashboard-main">
-        <div className="dashboard-content">
-          {renderCurrentPage()}
+      {/* Main Content */}
+      <div className="dashboard-main">
+        {/* Top Bar */}
+        <div className="dashboard-topbar">
+          <div className="topbar-left">
+            <button
+              className="sidebar-toggle"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            >
+              {sidebarCollapsed ? <Menu size={20} /> : <X size={20} />}
+            </button>
+            <h1 className="page-title">
+              {navigationItems.find(item => item.id === activeTab)?.name || 'Dashboard'}
+            </h1>
+          </div>
+
+          <div className="topbar-right">
+            <button className="topbar-btn">
+              <Bell size={20} />
+              {notifications > 0 && <span className="notification-dot">{notifications}</span>}
+            </button>
+            
+            <div className="vendor-menu">
+              <button className="vendor-menu-btn">
+                <img 
+                  src={vendor?.profileImage || '/default-avatar.png'} 
+                  alt="Profile" 
+                  className="vendor-avatar-sm"
+                />
+              </button>
+            </div>
+          </div>
         </div>
-      </main>
+
+        {/* Page Content */}
+        <div className="dashboard-content">
+          {renderCurrentTab()}
+        </div>
+      </div>
     </div>
   );
 };
