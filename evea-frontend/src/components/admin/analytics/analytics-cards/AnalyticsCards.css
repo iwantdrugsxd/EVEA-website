@@ -1,0 +1,443 @@
+/* src/components/admin/analytics/analytics-cards/AnalyticsCards.css */
+
+.analytics-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+/* Section Header */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.section-header h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.period-indicator {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--gray-100);
+  border-radius: var(--radius-full);
+}
+
+.period-text {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  font-weight: 500;
+}
+
+/* Cards Grid */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.analytics-card {
+  background: var(--white);
+  padding: var(--spacing-xl);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--gray-200);
+  transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.analytics-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+.analytics-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+}
+
+.analytics-card.success::before {
+  background: var(--success);
+}
+
+.analytics-card.info::before {
+  background: var(--info);
+}
+
+.analytics-card.warning::before {
+  background: var(--warning);
+}
+
+.analytics-card.error::before {
+  background: var(--error);
+}
+
+.analytics-card.primary::before {
+  background: var(--primary-color);
+}
+
+/* Card Header */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.card-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.analytics-card.success .card-icon {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--success);
+}
+
+.analytics-card.info .card-icon {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--info);
+}
+
+.analytics-card.warning .card-icon {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--warning);
+}
+
+.analytics-card.error .card-icon {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error);
+}
+
+.analytics-card.primary .card-icon {
+  background: rgba(139, 38, 53, 0.1);
+  color: var(--primary-color);
+}
+
+.trend-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-full);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.trend-indicator.positive {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--success);
+}
+
+.trend-indicator.negative {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error);
+}
+
+.trend-indicator.neutral {
+  background: rgba(107, 114, 128, 0.1);
+  color: var(--gray-600);
+}
+
+/* Card Content */
+.card-content {
+  margin-bottom: var(--spacing-lg);
+}
+
+.card-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--gray-600);
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.card-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin-bottom: var(--spacing-sm);
+  line-height: 1;
+}
+
+.card-subtitle {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  margin: 0;
+}
+
+/* Card Footer */
+.card-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--gray-200);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  transition: width var(--transition-slow);
+}
+
+.analytics-card.success .progress-fill {
+  background: var(--success);
+}
+
+.analytics-card.info .progress-fill {
+  background: var(--info);
+}
+
+.analytics-card.warning .progress-fill {
+  background: var(--warning);
+}
+
+.analytics-card.error .progress-fill {
+  background: var(--error);
+}
+
+.analytics-card.primary .progress-fill {
+  background: var(--primary-color);
+}
+
+.progress-text {
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  font-weight: 500;
+  text-align: center;
+}
+
+/* Insights Summary */
+.insights-summary {
+  background: var(--gray-50);
+  padding: var(--spacing-xl);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--gray-200);
+}
+
+.insights-summary h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin-bottom: var(--spacing-lg);
+}
+
+.insights-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.insight-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--white);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--gray-200);
+  transition: all var(--transition-fast);
+}
+
+.insight-item:hover {
+  background: var(--gray-50);
+  transform: translateX(4px);
+}
+
+.insight-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+.insight-dot.success {
+  background: var(--success);
+}
+
+.insight-dot.warning {
+  background: var(--warning);
+}
+
+.insight-dot.info {
+  background: var(--info);
+}
+
+.insight-item span {
+  font-size: 0.875rem;
+  color: var(--gray-700);
+  line-height: 1.6;
+}
+
+/* Animation Effects */
+.analytics-card {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.analytics-card:nth-child(1) { animation-delay: 0.1s; }
+.analytics-card:nth-child(2) { animation-delay: 0.2s; }
+.analytics-card:nth-child(3) { animation-delay: 0.3s; }
+.analytics-card:nth-child(4) { animation-delay: 0.4s; }
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Pulse animation for trend indicators */
+.trend-indicator.positive {
+  animation: pulse-success 2s infinite;
+}
+
+.trend-indicator.negative {
+  animation: pulse-error 2s infinite;
+}
+
+@keyframes pulse-success {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+  }
+}
+
+@keyframes pulse-error {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .section-header {
+    flex-direction: column;
+    gap: var(--spacing-md);
+    align-items: stretch;
+  }
+  
+  .period-indicator {
+    align-self: flex-end;
+  }
+}
+
+@media (max-width: 768px) {
+  .cards-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .analytics-card {
+    padding: var(--spacing-lg);
+  }
+  
+  .card-value {
+    font-size: 1.75rem;
+  }
+  
+  .card-header {
+    margin-bottom: var(--spacing-md);
+  }
+  
+  .card-icon {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .insights-summary {
+    padding: var(--spacing-lg);
+  }
+}
+
+@media (max-width: 480px) {
+  .analytics-cards {
+    gap: var(--spacing-lg);
+  }
+  
+  .card-value {
+    font-size: 1.5rem;
+  }
+  
+  .card-header {
+    flex-direction: column;
+    gap: var(--spacing-md);
+    align-items: flex-start;
+  }
+  
+  .trend-indicator {
+    align-self: flex-end;
+  }
+  
+  .insight-item {
+    padding: var(--spacing-sm);
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .analytics-card {
+    border-width: 2px;
+  }
+  
+  .progress-bar {
+    border: 1px solid var(--gray-400);
+  }
+  
+  .insight-dot {
+    border: 2px solid var(--white);
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .analytics-card {
+    animation: none;
+  }
+  
+  .analytics-card:hover {
+    transform: none;
+  }
+  
+  .trend-indicator.positive,
+  .trend-indicator.negative {
+    animation: none;
+  }
+  
+  .progress-fill {
+    transition: none;
+  }
+}
