@@ -1,233 +1,360 @@
-// services/googleDriveService.js
+// evea-backend/src/services/googleDriveService.js
 const { google } = require('googleapis');
+const path = require('path');
+const fs = require('fs');
 const stream = require('stream');
 
 class GoogleDriveService {
   constructor() {
-    this.drive = null;
     this.auth = null;
-    this.initializeAuth();
+    this.drive = null;
+    this.initialized = false;
   }
 
-  async initializeAuth() {
+  // Initialize Google Drive API
+  async initialize() {
     try {
-      // Initialize Google Auth
-      this.auth = new google.auth.GoogleAuth({
-        keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE, // Path to service account key file
-        scopes: ['https://www.googleapis.com/auth/drive'],
-      });
+      console.log('🔧 Initializing Google Drive service...');
 
-      // Alternative: Use service account credentials from environment variables
-      if (!process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE && process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS) {
-        const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS);
-        this.auth = google.auth.fromJSON(credentials);
-        this.auth.scopes = ['https://www.googleapis.com/auth/drive'];
+      // Check if service account file exists
+      const serviceAccountPath = path.join(__dirname, '../config/google-service-account.json');
+      
+      if (!fs.existsSync(serviceAccountPath)) {
+        console.warn('⚠️ Google service account file not found, using environment variables');
+        
+        // Use environment variables if service account file doesn't exist
+        if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
+          throw new Error('Google Drive credentials not configured');
+        }
+
+        this.auth = new google.auth.GoogleAuth({
+          credentials: {
+            client_email: process.env.GOOGLE_CLIENT_EMAIL,
+            private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+          },
+          scopes: ['https://www.googleapis.com/auth/drive.file']
+        });
+      } else {
+        // Use service account file
+        this.auth = new google.auth.GoogleAuth({
+          keyFile: serviceAccountPath,
+          scopes: ['https://www.googleapis.com/auth/drive.file']
+        });
       }
 
       this.drive = google.drive({ version: 'v3', auth: this.auth });
-      console.log('Google Drive API initialized successfully');
+      this.initialized = true;
+      
+      console.log('✅ Google Drive service initialized successfully');
+      
+      // Test the connection
+      await this.testConnection();
+      
     } catch (error) {
-      console.error('Failed to initialize Google Drive API:', error);
+      console.error('❌ Failed to initialize Google Drive service:', error);
+      this.initialized = false;
       throw error;
     }
   }
 
-  async uploadToGoogleDrive({ fileName, fileBuffer, mimeType, folderId = null }) {
+  // Test the connection
+  async testConnection() {
     try {
-      if (!this.drive) {
-        await this.initializeAuth();
+      const response = await this.drive.about.get({ fields: 'user' });
+      console.log('✅ Google Drive connection test successful');
+      console.log('📧 Connected as:', response.data.user?.emailAddress);
+    } catch (error) {
+      console.error('❌ Google Drive connection test failed:', error);
+      throw error;
+    }
+  }
+
+  // Upload file to Google Drive
+  async uploadFile(file, fileName, folderId = null) {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
       }
 
-      // Create a readable stream from buffer
-      const bufferStream = new stream.PassThrough();
-      bufferStream.end(fileBuffer);
+      console.log(`📁 Uploading file to Google Drive: ${fileName}`);
+      console.log(`📊 File size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+      console.log(`📋 File type: ${file.mimetype}`);
 
-      // File metadata
+      // Ensure we have a folder ID
+      const targetFolderId = folderId || process.env.GOOGLE_DRIVE_FOLDER_ID;
+      
+      if (!targetFolderId) {
+        throw new Error('Google Drive folder ID not configured');
+      }
+
+      // Create file metadata
       const fileMetadata = {
         name: fileName,
-        parents: folderId ? [folderId] : undefined,
+        parents: [targetFolderId]
       };
 
-      // Upload file
+      // Create media object from buffer
+      const media = {
+        mimeType: file.mimetype,
+        body: stream.Readable.from(file.buffer)
+      };
+
+      // Upload file to Google Drive
       const response = await this.drive.files.create({
-        requestBody: fileMetadata,
-        media: {
-          mimeType: mimeType,
-          body: bufferStream,
-        },
-        fields: 'id, name, size, mimeType, createdTime',
+        resource: fileMetadata,
+        media: media,
+        fields: 'id,name,webViewLink,webContentLink,size,createdTime'
       });
 
-      // Set file permissions (optional - make it accessible by link)
-      await this.drive.permissions.create({
-        fileId: response.data.id,
-        requestBody: {
-          role: 'reader',
-          type: 'anyone',
-        },
-      });
+      console.log(`✅ File uploaded successfully to Google Drive`);
+      console.log(`🆔 File ID: ${response.data.id}`);
+      console.log(`🔗 View Link: ${response.data.webViewLink}`);
 
-      console.log(`File uploaded successfully: ${fileName} (ID: ${response.data.id})`);
-      
       return {
-        id: response.data.id,
-        name: response.data.name,
+        fileId: response.data.id,
+        fileName: response.data.name,
+        webViewLink: response.data.webViewLink,
+        webContentLink: response.data.webContentLink,
         size: response.data.size,
-        mimeType: response.data.mimeType,
-        createdTime: response.data.createdTime,
-        webViewLink: `https://drive.google.com/file/d/${response.data.id}/view`,
-        downloadLink: `https://drive.google.com/uc?export=download&id=${response.data.id}`
+        uploadedAt: response.data.createdTime,
+        driveUrl: `https://drive.google.com/file/d/${response.data.id}/view`
       };
 
     } catch (error) {
-      console.error('Error uploading file to Google Drive:', error);
-      throw new Error(`Failed to upload file: ${error.message}`);
+      console.error('❌ Google Drive upload error:', error);
+      throw new Error(`Failed to upload to Google Drive: ${error.message}`);
     }
   }
 
-  async deleteFromGoogleDrive(fileId) {
+  // Get file from Google Drive
+  async getFile(fileId) {
     try {
-      if (!this.drive) {
-        await this.initializeAuth();
+      if (!this.initialized) {
+        await this.initialize();
       }
 
-      await this.drive.files.delete({
-        fileId: fileId,
-      });
-
-      console.log(`File deleted successfully: ${fileId}`);
-      return { success: true, fileId };
-
-    } catch (error) {
-      console.error('Error deleting file from Google Drive:', error);
-      throw new Error(`Failed to delete file: ${error.message}`);
-    }
-  }
-
-  async getFileInfo(fileId) {
-    try {
-      if (!this.drive) {
-        await this.initializeAuth();
-      }
+      console.log(`📥 Retrieving file from Google Drive: ${fileId}`);
 
       const response = await this.drive.files.get({
         fileId: fileId,
-        fields: 'id, name, size, mimeType, createdTime, modifiedTime',
+        fields: 'id,name,mimeType,size,createdTime,webViewLink'
       });
 
+      console.log(`✅ File retrieved successfully: ${response.data.name}`);
       return response.data;
 
     } catch (error) {
-      console.error('Error getting file info from Google Drive:', error);
-      throw new Error(`Failed to get file info: ${error.message}`);
+      console.error('❌ Google Drive download error:', error);
+      throw new Error(`Failed to retrieve from Google Drive: ${error.message}`);
     }
   }
 
+  // Download file content from Google Drive
   async downloadFile(fileId) {
     try {
-      if (!this.drive) {
-        await this.initializeAuth();
+      if (!this.initialized) {
+        await this.initialize();
       }
+
+      console.log(`📥 Downloading file content from Google Drive: ${fileId}`);
 
       const response = await this.drive.files.get({
         fileId: fileId,
-        alt: 'media',
+        alt: 'media'
       });
 
+      console.log(`✅ File content downloaded successfully`);
       return response.data;
 
     } catch (error) {
-      console.error('Error downloading file from Google Drive:', error);
-      throw new Error(`Failed to download file: ${error.message}`);
+      console.error('❌ Google Drive download error:', error);
+      throw new Error(`Failed to download from Google Drive: ${error.message}`);
     }
   }
 
+  // Delete file from Google Drive
+  async deleteFile(fileId) {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+
+      console.log(`🗑️ Deleting file from Google Drive: ${fileId}`);
+
+      await this.drive.files.delete({
+        fileId: fileId
+      });
+      
+      console.log(`✅ File deleted successfully from Google Drive`);
+      return true;
+
+    } catch (error) {
+      console.error('❌ Google Drive delete error:', error);
+      throw new Error(`Failed to delete from Google Drive: ${error.message}`);
+    }
+  }
+
+  // Create a folder in Google Drive
   async createFolder(folderName, parentFolderId = null) {
     try {
-      if (!this.drive) {
-        await this.initializeAuth();
+      if (!this.initialized) {
+        await this.initialize();
       }
+
+      console.log(`📁 Creating folder in Google Drive: ${folderName}`);
 
       const fileMetadata = {
         name: folderName,
         mimeType: 'application/vnd.google-apps.folder',
-        parents: parentFolderId ? [parentFolderId] : undefined,
+        ...(parentFolderId && { parents: [parentFolderId] })
       };
 
       const response = await this.drive.files.create({
-        requestBody: fileMetadata,
-        fields: 'id, name',
+        resource: fileMetadata,
+        fields: 'id,name,webViewLink'
       });
 
-      console.log(`Folder created successfully: ${folderName} (ID: ${response.data.id})`);
+      console.log(`✅ Folder created successfully: ${response.data.id}`);
       return response.data;
 
     } catch (error) {
-      console.error('Error creating folder in Google Drive:', error);
-      throw new Error(`Failed to create folder: ${error.message}`);
+      console.error('❌ Google Drive folder creation error:', error);
+      throw new Error(`Failed to create folder in Google Drive: ${error.message}`);
     }
   }
 
-  async listFiles(folderId = null, maxResults = 10) {
+  // Generate shareable link for a file
+  async generateShareableLink(fileId, permission = 'reader') {
     try {
-      if (!this.drive) {
-        await this.initializeAuth();
+      if (!this.initialized) {
+        await this.initialize();
       }
 
-      const query = folderId ? `'${folderId}' in parents` : undefined;
+      console.log(`🔗 Generating shareable link for file: ${fileId}`);
 
-      const response = await this.drive.files.list({
-        q: query,
-        pageSize: maxResults,
-        fields: 'nextPageToken, files(id, name, size, mimeType, createdTime)',
+      // Create permission for anyone with the link
+      await this.drive.permissions.create({
+        fileId: fileId,
+        resource: {
+          role: permission,
+          type: 'anyone'
+        }
       });
 
+      // Get the file with webViewLink
+      const file = await this.drive.files.get({
+        fileId: fileId,
+        fields: 'webViewLink,webContentLink'
+      });
+
+      console.log(`✅ Shareable link generated successfully`);
+      return {
+        viewLink: file.data.webViewLink,
+        downloadLink: file.data.webContentLink
+      };
+
+    } catch (error) {
+      console.error('❌ Google Drive share link error:', error);
+      throw new Error(`Failed to generate shareable link: ${error.message}`);
+    }
+  }
+
+  // List files in a folder
+  async listFiles(folderId, maxResults = 100) {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+
+      console.log(`📋 Listing files in folder: ${folderId}`);
+
+      const response = await this.drive.files.list({
+        q: `'${folderId}' in parents and trashed=false`,
+        pageSize: maxResults,
+        fields: 'files(id,name,mimeType,size,createdTime,webViewLink)'
+      });
+
+      console.log(`✅ Found ${response.data.files.length} files`);
       return response.data.files;
 
     } catch (error) {
-      console.error('Error listing files from Google Drive:', error);
+      console.error('❌ Google Drive list files error:', error);
       throw new Error(`Failed to list files: ${error.message}`);
     }
   }
 
-  async shareFile(fileId, email, role = 'reader') {
+  // Get folder info and create vendor-specific folder
+  async getOrCreateVendorFolder(vendorId, vendorName) {
     try {
-      if (!this.drive) {
-        await this.initializeAuth();
+      const folderName = `Vendor_${vendorId}_${vendorName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const mainFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+      if (!mainFolderId) {
+        throw new Error('Main Google Drive folder ID not configured');
       }
 
-      const response = await this.drive.permissions.create({
-        fileId: fileId,
-        requestBody: {
-          role: role,
-          type: 'user',
-          emailAddress: email,
-        },
-        fields: 'id',
+      // Check if vendor folder already exists
+      const existingFolders = await this.drive.files.list({
+        q: `name='${folderName}' and '${mainFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: 'files(id,name)'
       });
 
-      console.log(`File shared successfully with ${email}`);
-      return response.data;
+      if (existingFolders.data.files.length > 0) {
+        console.log(`📁 Using existing vendor folder: ${existingFolders.data.files[0].id}`);
+        return existingFolders.data.files[0];
+      }
+
+      // Create new vendor folder
+      const newFolder = await this.createFolder(folderName, mainFolderId);
+      console.log(`📁 Created new vendor folder: ${newFolder.id}`);
+      return newFolder;
 
     } catch (error) {
-      console.error('Error sharing file:', error);
-      throw new Error(`Failed to share file: ${error.message}`);
+      console.error('❌ Vendor folder creation error:', error);
+      throw new Error(`Failed to get or create vendor folder: ${error.message}`);
     }
   }
 }
 
-// Create a singleton instance
+// Create singleton instance
 const googleDriveService = new GoogleDriveService();
 
-// Export individual functions for easier use
-module.exports = {
-  uploadToGoogleDrive: googleDriveService.uploadToGoogleDrive.bind(googleDriveService),
-  deleteFromGoogleDrive: googleDriveService.deleteFromGoogleDrive.bind(googleDriveService),
-  getFileInfo: googleDriveService.getFileInfo.bind(googleDriveService),
-  downloadFile: googleDriveService.downloadFile.bind(googleDriveService),
-  createFolder: googleDriveService.createFolder.bind(googleDriveService),
-  listFiles: googleDriveService.listFiles.bind(googleDriveService),
-  shareFile: googleDriveService.shareFile.bind(googleDriveService),
-  googleDriveService
+// Export individual functions for backward compatibility
+const uploadToGoogleDrive = async (file, fileName, folderId = null) => {
+  return await googleDriveService.uploadFile(file, fileName, folderId);
 };
 
+const getFileFromDrive = async (fileId) => {
+  return await googleDriveService.getFile(fileId);
+};
+
+const downloadFileFromDrive = async (fileId) => {
+  return await googleDriveService.downloadFile(fileId);
+};
+
+const deleteFileFromDrive = async (fileId) => {
+  return await googleDriveService.deleteFile(fileId);
+};
+
+const createDriveFolder = async (folderName, parentFolderId = null) => {
+  return await googleDriveService.createFolder(folderName, parentFolderId);
+};
+
+const generateShareableLink = async (fileId, permission = 'reader') => {
+  return await googleDriveService.generateShareableLink(fileId, permission);
+};
+
+const getOrCreateVendorFolder = async (vendorId, vendorName) => {
+  return await googleDriveService.getOrCreateVendorFolder(vendorId, vendorName);
+};
+
+module.exports = {
+  googleDriveService,
+  uploadToGoogleDrive,
+  getFileFromDrive,
+  downloadFileFromDrive,
+  deleteFileFromDrive,
+  createDriveFolder,
+  generateShareableLink,
+  getOrCreateVendorFolder
+};

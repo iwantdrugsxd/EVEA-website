@@ -1,510 +1,531 @@
+// evea-frontend/src/components/VendorRegistration/VendorRegistrationStep3.jsx
 import React, { useState } from 'react';
-import { Plus, Trash2, Star, DollarSign, Clock, Users, Palette, MapPin } from 'lucide-react';
-import { RECOMMENDATION_QUESTIONS } from '../../constants/recommendationQuestions';
+import { useAuth } from '../../contexts/AuthContext';
+import { 
+  ArrowLeft, 
+  CheckCircle, 
+  AlertCircle, 
+  Plus,
+  X,
+  CreditCard,
+  Building2,
+  Sparkles,
+  Target,
+  IndianRupee
+} from 'lucide-react';
+import './VendorRegistrationStep3.css';
 
-const VendorRegistrationStep3 = ({ onNext, onPrevious, isLoading }) => {
+const VendorRegistrationStep3 = ({ vendorId, onComplete, onBack }) => {
+  const { registerStep3 } = useAuth();
+  
   const [services, setServices] = useState([{
-    serviceInfo: {
-      title: '',
-      category: '',
-      subcategory: '',
-      description: '',
-      features: [''],
-      eventTypes: [],
-      guestCapacity: { min: '', max: '' },
-      budgetRange: { min: '', max: '' },
-      serviceArea: { cities: [''], radiusKm: 50 },
-      specializations: [''],
-      themes: []
-    },
-    packages: [{
-      name: 'Basic Package',
-      description: '',
-      price: '',
-      duration: '',
-      features: [''],
-      addOns: [],
-      isPopular: false
-    }],
-    availability: {
-      workingDays: [],
-      workingHours: { start: '09:00', end: '18:00' },
-      advanceBookingDays: 30
-    }
+    title: '',
+    category: '',
+    description: '',
+    eventTypes: [],
+    budgetRange: { min: '', max: '' },
+    packages: []
   }]);
 
-  const [recommendationData, setRecommendationData] = useState({});
+  const [bankDetails, setBankDetails] = useState({
+    accountHolderName: '',
+    accountNumber: '',
+    ifscCode: '',
+    bankName: '',
+    branch: ''
+  });
+
   const [errors, setErrors] = useState({});
-  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
-  const allQuestions = [
-    ...RECOMMENDATION_QUESTIONS.eventExpertise,
-    ...RECOMMENDATION_QUESTIONS.budgetExpertise,
-    ...RECOMMENDATION_QUESTIONS.geographicExpertise,
-    ...RECOMMENDATION_QUESTIONS.styleExpertise,
-    ...RECOMMENDATION_QUESTIONS.qualityIndicators
-  ];
-
+  // Service categories
   const serviceCategories = [
-    { value: 'photography', label: 'Photography' },
-    { value: 'catering', label: 'Catering' },
-    { value: 'decoration', label: 'Decoration' },
-    { value: 'venue', label: 'Venue' },
-    { value: 'music_entertainment', label: 'Music & Entertainment' },
-    { value: 'planning', label: 'Event Planning' },
-    { value: 'transport', label: 'Transportation' },
-    { value: 'makeup_styling', label: 'Makeup & Styling' },
-    { value: 'floral', label: 'Floral Arrangements' },
-    { value: 'lighting', label: 'Lighting & Sound' }
+    'Photography & Videography',
+    'Catering Services',
+    'Decoration & Design',
+    'Entertainment & Music',
+    'Venue & Location',
+    'Wedding Planning',
+    'Transportation',
+    'Makeup & Styling',
+    'Floral Services',
+    'Security Services',
+    'Other Services'
   ];
 
+  // Event types
   const eventTypes = [
-    { value: 'wedding', label: 'Weddings' },
-    { value: 'corporate', label: 'Corporate Events' },
-    { value: 'birthday', label: 'Birthday Parties' },
-    { value: 'anniversary', label: 'Anniversaries' },
-    { value: 'religious', label: 'Religious Ceremonies' },
-    { value: 'graduation', label: 'Graduations' },
-    { value: 'baby_shower', label: 'Baby Showers' },
-    { value: 'engagement', label: 'Engagements' }
+    'Wedding',
+    'Birthday Party',
+    'Corporate Event',
+    'Anniversary',
+    'Baby Shower',
+    'Engagement',
+    'Festival Celebration',
+    'Conference',
+    'Product Launch',
+    'Social Gathering'
   ];
 
-  const workingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const handleServiceChange = (index, field, value) => {
+    const updatedServices = [...services];
+    if (field.includes('.')) {
+      const [parent, child] = field.split('.');
+      updatedServices[index][parent][child] = value;
+    } else {
+      updatedServices[index][field] = value;
+    }
+    setServices(updatedServices);
 
-  const handleServiceChange = (serviceIndex, field, value) => {
-    setServices(prev => 
-      prev.map((service, index) => 
-        index === serviceIndex 
-          ? { ...service, [field]: value }
-          : service
-      )
-    );
+    // Clear errors
+    const errorKey = `service${index}_${field.split('.').pop()}`;
+    if (errors[errorKey]) {
+      setErrors(prev => ({ ...prev, [errorKey]: '' }));
+    }
   };
 
-  const handleServiceInfoChange = (serviceIndex, field, value) => {
-    setServices(prev => 
-      prev.map((service, index) => 
-        index === serviceIndex 
-          ? { 
-              ...service, 
-              serviceInfo: { ...service.serviceInfo, [field]: value }
-            }
-          : service
-      )
-    );
+  const handleEventTypeToggle = (serviceIndex, eventType) => {
+    const updatedServices = [...services];
+    const currentEventTypes = updatedServices[serviceIndex].eventTypes;
+    
+    if (currentEventTypes.includes(eventType)) {
+      updatedServices[serviceIndex].eventTypes = currentEventTypes.filter(type => type !== eventType);
+    } else {
+      updatedServices[serviceIndex].eventTypes = [...currentEventTypes, eventType];
+    }
+    
+    setServices(updatedServices);
   };
 
-  const handleAddService = () => {
-    setServices(prev => [...prev, {
-      serviceInfo: {
-        title: '',
-        category: '',
-        subcategory: '',
-        description: '',
-        features: [''],
-        eventTypes: [],
-        guestCapacity: { min: '', max: '' },
-        budgetRange: { min: '', max: '' },
-        serviceArea: { cities: [''], radiusKm: 50 },
-        specializations: [''],
-        themes: []
-      },
-      packages: [{
-        name: 'Basic Package',
-        description: '',
-        price: '',
-        duration: '',
-        features: [''],
-        addOns: [],
-        isPopular: false
-      }],
-      availability: {
-        workingDays: [],
-        workingHours: { start: '09:00', end: '18:00' },
-        advanceBookingDays: 30
-      }
+  const addService = () => {
+    setServices([...services, {
+      title: '',
+      category: '',
+      description: '',
+      eventTypes: [],
+      budgetRange: { min: '', max: '' },
+      packages: []
     }]);
   };
 
-  const handleRemoveService = (serviceIndex) => {
+  const removeService = (index) => {
     if (services.length > 1) {
-      setServices(prev => prev.filter((_, index) => index !== serviceIndex));
+      const updatedServices = services.filter((_, i) => i !== index);
+      setServices(updatedServices);
     }
   };
 
-  const handleRecommendationAnswer = (questionId, answer) => {
-    setRecommendationData(prev => ({
-      ...prev,
-      [questionId]: answer
-    }));
-  };
-
-  const renderRecommendationQuestion = (question) => {
-    const currentAnswer = recommendationData[question.id];
-
-    switch (question.type) {
-      case 'multiple_choice':
-        return (
-          <div className="question-options">
-            {question.options.map(option => (
-              <div 
-                key={option.value}
-                className={`option-card ${
-                  question.multiple 
-                    ? (currentAnswer?.includes(option.value) ? 'selected' : '')
-                    : (currentAnswer === option.value ? 'selected' : '')
-                }`}
-                onClick={() => {
-                  if (question.multiple) {
-                    const current = currentAnswer || [];
-                    const updated = current.includes(option.value)
-                      ? current.filter(v => v !== option.value)
-                      : [...current, option.value];
-                    handleRecommendationAnswer(question.id, updated);
-                  } else {
-                    handleRecommendationAnswer(question.id, option.value);
-                  }
-                }}
-              >
-                <div className="option-content">
-                  <h4>{option.label}</h4>
-                  {option.description && <p>{option.description}</p>}
-                </div>
-              </div>
-            ))}
-          </div>
-        );
-
-      case 'number':
-        return (
-          <div className="number-input">
-            <input
-              type="number"
-              min={question.min}
-              max={question.max}
-              value={currentAnswer || ''}
-              onChange={(e) => handleRecommendationAnswer(question.id, parseInt(e.target.value))}
-              className="form-input"
-              placeholder={`Enter value between ${question.min} and ${question.max}`}
-            />
-          </div>
-        );
-
-      case 'budget_range':
-        return (
-          <div className="budget-ranges">
-            {question.options.map(option => (
-              <div 
-                key={option.value}
-                className={`budget-card ${currentAnswer?.includes(option.value) ? 'selected' : ''}`}
-                onClick={() => {
-                  const current = currentAnswer || [];
-                  const updated = current.includes(option.value)
-                    ? current.filter(v => v !== option.value)
-                    : [...current, option.value];
-                  handleRecommendationAnswer(question.id, updated);
-                }}
-              >
-                <h4>{option.label}</h4>
-                <p>₹{option.range[0].toLocaleString()} - ₹{option.range[1].toLocaleString()}</p>
-              </div>
-            ))}
-          </div>
-        );
-
-      default:
-        return <div>Question type not supported</div>;
+  const handleBankDetailsChange = (field, value) => {
+    setBankDetails(prev => ({ ...prev, [field]: value }));
+    
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
     }
   };
 
   const validateForm = () => {
     const newErrors = {};
-    
+
+    // Validate services
     services.forEach((service, index) => {
-      if (!service.serviceInfo.title.trim()) {
-        newErrors[`service_${index}_title`] = 'Service title is required';
+      if (!service.title.trim()) {
+        newErrors[`service${index}_title`] = 'Service title is required';
       }
-      if (!service.serviceInfo.category) {
-        newErrors[`service_${index}_category`] = 'Service category is required';
+      if (!service.category) {
+        newErrors[`service${index}_category`] = 'Service category is required';
       }
-      if (service.packages.length === 0 || !service.packages[0].price) {
-        newErrors[`service_${index}_package`] = 'At least one package with pricing is required';
+      if (!service.description.trim()) {
+        newErrors[`service${index}_description`] = 'Service description is required';
+      }
+      if (service.eventTypes.length === 0) {
+        newErrors[`service${index}_eventTypes`] = 'Select at least one event type';
+      }
+      if (!service.budgetRange.min || !service.budgetRange.max) {
+        newErrors[`service${index}_budget`] = 'Budget range is required';
+      } else if (parseInt(service.budgetRange.min) >= parseInt(service.budgetRange.max)) {
+        newErrors[`service${index}_budget`] = 'Maximum budget must be greater than minimum';
       }
     });
+
+    // Validate bank details
+    if (!bankDetails.accountHolderName.trim()) {
+      newErrors.accountHolderName = 'Account holder name is required';
+    }
+    if (!bankDetails.accountNumber.trim()) {
+      newErrors.accountNumber = 'Account number is required';
+    }
+    if (!bankDetails.ifscCode.trim()) {
+      newErrors.ifscCode = 'IFSC code is required';
+    } else {
+      const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+      if (!ifscRegex.test(bankDetails.ifscCode.toUpperCase())) {
+        newErrors.ifscCode = 'Please enter a valid IFSC code';
+      }
+    }
+    if (!bankDetails.bankName.trim()) {
+      newErrors.bankName = 'Bank name is required';
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (validateForm()) {
-      onNext({
-        services,
-        recommendationData
-      });
+    console.log('🎯 Starting Step 3 registration');
+    console.log('📊 Services:', services);
+    console.log('🏦 Bank Details:', { ...bankDetails, accountNumber: '[HIDDEN]' });
+    
+    if (!validateForm()) {
+      console.log('❌ Form validation failed');
+      return;
+    }
+
+    setLoading(true);
+    setErrors({});
+    setSuccessMessage('');
+
+    try {
+      const submitData = {
+        services: services.map(service => ({
+          ...service,
+          budgetRange: {
+            min: parseInt(service.budgetRange.min),
+            max: parseInt(service.budgetRange.max)
+          }
+        })),
+        bankDetails: {
+          ...bankDetails,
+          ifscCode: bankDetails.ifscCode.toUpperCase()
+        }
+      };
+
+      const result = await registerStep3(vendorId, submitData);
+      
+      if (result.success) {
+        console.log('✅ Step 3 registration completed successfully');
+        setSuccessMessage('Registration completed successfully! Your application is now under review.');
+        
+        // Complete registration after showing success message
+        setTimeout(() => {
+          onComplete();
+        }, 3000);
+      } else {
+        console.log('❌ Step 3 registration failed:', result.message);
+        setErrors({ submit: result.message || 'Registration completion failed' });
+      }
+    } catch (error) {
+      console.error('❌ Step 3 registration error:', error);
+      setErrors({ submit: 'Registration failed. Please try again.' });
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="vendor-registration-step">
-      <div className="step-header">
-        <h2 className="step-title">Services & Packages</h2>
-        <p className="step-description">
-          Set up your services, packages, and help us understand your expertise for better recommendations
-        </p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="registration-form">
-        {/* Services Section */}
-        <div className="form-section">
-          <div className="section-header">
-            <h3 className="section-title">Your Services</h3>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={handleAddService}
-            >
-              <Plus size={16} />
-              Add Service
-            </button>
+    <div className="vendor-registration-step3">
+      <div className="registration-container">
+        <div className="registration-header">
+          <h1>Services & Banking</h1>
+          <p>Step 3 of 3: Setup Your Services and Payment Details</p>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: '100%' }}></div>
           </div>
+        </div>
 
-          {services.map((service, serviceIndex) => (
-            <div key={serviceIndex} className="service-card">
-              <div className="service-header">
-                <h4>Service {serviceIndex + 1}</h4>
-                {services.length > 1 && (
-                  <button
-                    type="button"
-                    className="btn btn-danger btn-sm"
-                    onClick={() => handleRemoveService(serviceIndex)}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
+        {successMessage && (
+          <div className="success-banner">
+            <CheckCircle size={20} />
+            <span>{successMessage}</span>
+          </div>
+        )}
 
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">Service Title *</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g., Wedding Photography"
-                    value={service.serviceInfo.title}
-                    onChange={(e) => handleServiceInfoChange(serviceIndex, 'title', e.target.value)}
-                  />
+        <form onSubmit={handleSubmit} className="registration-form">
+          {/* Services Section */}
+          <div className="form-section">
+            <div className="section-header">
+              <h3><Sparkles size={20} /> Your Services</h3>
+              <p>Tell us about the services you offer for events</p>
+            </div>
+
+            {services.map((service, index) => (
+              <div key={index} className="service-card">
+                <div className="service-header">
+                  <h4>Service {index + 1}</h4>
+                  {services.length > 1 && (
+                    <button
+                      type="button"
+                      className="remove-service-btn"
+                      onClick={() => removeService(index)}
+                      disabled={loading}
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Category *</label>
-                  <select
-                    className="form-select"
-                    value={service.serviceInfo.category}
-                    onChange={(e) => handleServiceInfoChange(serviceIndex, 'category', e.target.value)}
-                  >
-                    <option value="">Select category</option>
-                    {serviceCategories.map(cat => (
-                      <option key={cat.value} value={cat.value}>
-                        {cat.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <div className="service-form">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Service Title *</label>
+                      <input
+                        type="text"
+                        value={service.title}
+                        onChange={(e) => handleServiceChange(index, 'title', e.target.value)}
+                        className={errors[`service${index}_title`] ? 'error' : ''}
+                        placeholder="e.g., Wedding Photography, Catering Services"
+                        disabled={loading}
+                      />
+                      {errors[`service${index}_title`] && (
+                        <span className="error-text">{errors[`service${index}_title`]}</span>
+                      )}
+                    </div>
 
-                <div className="form-group full-width">
-                  <label className="form-label">Service Description</label>
-                  <textarea
-                    className="form-textarea"
-                    rows="3"
-                    placeholder="Describe your service in detail..."
-                    value={service.serviceInfo.description}
-                    onChange={(e) => handleServiceInfoChange(serviceIndex, 'description', e.target.value)}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Event Types</label>
-                  <div className="checkbox-group">
-                    {eventTypes.map(eventType => (
-                      <label key={eventType.value} className="checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={service.serviceInfo.eventTypes.includes(eventType.value)}
-                          onChange={(e) => {
-                            const current = service.serviceInfo.eventTypes;
-                            const updated = e.target.checked
-                              ? [...current, eventType.value]
-                              : current.filter(type => type !== eventType.value);
-                            handleServiceInfoChange(serviceIndex, 'eventTypes', updated);
-                          }}
-                        />
-                        {eventType.label}
-                      </label>
-                    ))}
+                    <div className="form-group">
+                      <label>Category *</label>
+                      <select
+                        value={service.category}
+                        onChange={(e) => handleServiceChange(index, 'category', e.target.value)}
+                        className={errors[`service${index}_category`] ? 'error' : ''}
+                        disabled={loading}
+                      >
+                        <option value="">Select category</option>
+                        {serviceCategories.map(category => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
+                      {errors[`service${index}_category`] && (
+                        <span className="error-text">{errors[`service${index}_category`]}</span>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="form-group">
-                  <label className="form-label">Guest Capacity</label>
-                  <div className="range-inputs">
-                    <input
-                      type="number"
-                      placeholder="Min"
-                      value={service.serviceInfo.guestCapacity.min}
-                      onChange={(e) => handleServiceInfoChange(serviceIndex, 'guestCapacity', {
-                        ...service.serviceInfo.guestCapacity,
-                        min: e.target.value
-                      })}
+                  <div className="form-group">
+                    <label>Service Description *</label>
+                    <textarea
+                      value={service.description}
+                      onChange={(e) => handleServiceChange(index, 'description', e.target.value)}
+                      className={errors[`service${index}_description`] ? 'error' : ''}
+                      placeholder="Describe your service, what you offer, and what makes you unique"
+                      rows="4"
+                      disabled={loading}
                     />
-                    <span>to</span>
-                    <input
-                      type="number"
-                      placeholder="Max"
-                      value={service.serviceInfo.guestCapacity.max}
-                      onChange={(e) => handleServiceInfoChange(serviceIndex, 'guestCapacity', {
-                        ...service.serviceInfo.guestCapacity,
-                        max: e.target.value
-                      })}
-                    />
+                    {errors[`service${index}_description`] && (
+                      <span className="error-text">{errors[`service${index}_description`]}</span>
+                    )}
                   </div>
-                </div>
 
-                <div className="form-group">
-                  <label className="form-label">Budget Range (₹)</label>
-                  <div className="range-inputs">
-                    <input
-                      type="number"
-                      placeholder="Min Price"
-                      value={service.serviceInfo.budgetRange.min}
-                      onChange={(e) => handleServiceInfoChange(serviceIndex, 'budgetRange', {
-                        ...service.serviceInfo.budgetRange,
-                        min: e.target.value
-                      })}
-                    />
-                    <span>to</span>
-                    <input
-                      type="number"
-                      placeholder="Max Price"
-                      value={service.serviceInfo.budgetRange.max}
-                      onChange={(e) => handleServiceInfoChange(serviceIndex, 'budgetRange', {
-                        ...service.serviceInfo.budgetRange,
-                        max: e.target.value
-                      })}
-                    />
+                  <div className="form-group">
+                    <label>Event Types *</label>
+                    <div className="event-types-grid">
+                      {eventTypes.map(eventType => (
+                        <label key={eventType} className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={service.eventTypes.includes(eventType)}
+                            onChange={() => handleEventTypeToggle(index, eventType)}
+                            disabled={loading}
+                          />
+                          <span className="checkbox-text">{eventType}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {errors[`service${index}_eventTypes`] && (
+                      <span className="error-text">{errors[`service${index}_eventTypes`]}</span>
+                    )}
                   </div>
-                </div>
-              </div>
 
-              {/* Package Configuration */}
-              <div className="packages-section">
-                <h5>Service Packages</h5>
-                {service.packages.map((pkg, pkgIndex) => (
-                  <div key={pkgIndex} className="package-card">
-                    <div className="form-grid">
-                      <div className="form-group">
-                        <label className="form-label">Package Name</label>
-                        <input
-                          type="text"
-                          className="form-input"
-                          value={pkg.name}
-                          onChange={(e) => {
-                            const updatedPackages = [...service.packages];
-                            updatedPackages[pkgIndex].name = e.target.value;
-                            handleServiceChange(serviceIndex, 'packages', updatedPackages);
-                          }}
-                        />
-                      </div>
-
-                      <div className="form-group">
-                        <label className="form-label">Price (₹) *</label>
+                  <div className="form-group">
+                    <label>Budget Range (INR) *</label>
+                    <div className="budget-range">
+                      <div className="budget-input">
+                        <IndianRupee size={16} />
                         <input
                           type="number"
-                          className="form-input"
-                          value={pkg.price}
-                          onChange={(e) => {
-                            const updatedPackages = [...service.packages];
-                            updatedPackages[pkgIndex].price = e.target.value;
-                            handleServiceChange(serviceIndex, 'packages', updatedPackages);
-                          }}
+                          value={service.budgetRange.min}
+                          onChange={(e) => handleServiceChange(index, 'budgetRange.min', e.target.value)}
+                          placeholder="Minimum"
+                          min="0"
+                          disabled={loading}
                         />
                       </div>
-
-                      <div className="form-group">
-                        <label className="form-label">Duration</label>
+                      <span className="budget-separator">to</span>
+                      <div className="budget-input">
+                        <IndianRupee size={16} />
                         <input
-                          type="text"
-                          className="form-input"
-                          placeholder="e.g., 4 hours, Full day"
-                          value={pkg.duration}
-                          onChange={(e) => {
-                            const updatedPackages = [...service.packages];
-                            updatedPackages[pkgIndex].duration = e.target.value;
-                            handleServiceChange(serviceIndex, 'packages', updatedPackages);
-                          }}
-                        />
-                      </div>
-
-                      <div className="form-group full-width">
-                        <label className="form-label">Package Description</label>
-                        <textarea
-                          className="form-textarea"
-                          rows="2"
-                          value={pkg.description}
-                          onChange={(e) => {
-                            const updatedPackages = [...service.packages];
-                            updatedPackages[pkgIndex].description = e.target.value;
-                            handleServiceChange(serviceIndex, 'packages', updatedPackages);
-                          }}
+                          type="number"
+                          value={service.budgetRange.max}
+                          onChange={(e) => handleServiceChange(index, 'budgetRange.max', e.target.value)}
+                          placeholder="Maximum"
+                          min="0"
+                          disabled={loading}
                         />
                       </div>
                     </div>
+                    {errors[`service${index}_budget`] && (
+                      <span className="error-text">{errors[`service${index}_budget`]}</span>
+                    )}
                   </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Recommendation Questions */}
-        <div className="form-section">
-          <h3 className="section-title">
-            <Star size={20} />
-            Help Us Understand Your Expertise
-          </h3>
-          <p className="section-description">
-            Answer these questions to help us recommend your services to the right customers
-          </p>
-
-          <div className="recommendation-questions">
-            {allQuestions.slice(0, 5).map((question, index) => (
-              <div key={question.id} className="question-card">
-                <h4 className="question-title">{question.question}</h4>
-                {renderRecommendationQuestion(question)}
+                </div>
               </div>
             ))}
-          </div>
-        </div>
 
-        <div className="form-actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={onPrevious}
-          >
-            Previous Step
-          </button>
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={isLoading}
-          >
-            {isLoading ? 'Completing Registration...' : 'Complete Registration'}
-          </button>
-        </div>
-      </form>
+            <button
+              type="button"
+              className="add-service-btn"
+              onClick={addService}
+              disabled={loading || services.length >= 5}
+            >
+              <Plus size={16} />
+              <span>Add Another Service</span>
+            </button>
+            {services.length >= 5 && (
+              <p className="service-limit-note">Maximum 5 services allowed during registration</p>
+            )}
+          </div>
+
+          {/* Bank Details Section */}
+          <div className="form-section">
+            <div className="section-header">
+              <h3><CreditCard size={20} /> Banking Information</h3>
+              <p>Enter your bank details for payment processing</p>
+            </div>
+
+            <div className="bank-form">
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Account Holder Name *</label>
+                  <input
+                    type="text"
+                    value={bankDetails.accountHolderName}
+                    onChange={(e) => handleBankDetailsChange('accountHolderName', e.target.value)}
+                    className={errors.accountHolderName ? 'error' : ''}
+                    placeholder="Enter account holder name"
+                    disabled={loading}
+                  />
+                  {errors.accountHolderName && (
+                    <span className="error-text">{errors.accountHolderName}</span>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label>Bank Name *</label>
+                  <input
+                    type="text"
+                    value={bankDetails.bankName}
+                    onChange={(e) => handleBankDetailsChange('bankName', e.target.value)}
+                    className={errors.bankName ? 'error' : ''}
+                    placeholder="Enter bank name"
+                    disabled={loading}
+                  />
+                  {errors.bankName && (
+                    <span className="error-text">{errors.bankName}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Account Number *</label>
+                  <input
+                    type="text"
+                    value={bankDetails.accountNumber}
+                    onChange={(e) => handleBankDetailsChange('accountNumber', e.target.value)}
+                    className={errors.accountNumber ? 'error' : ''}
+                    placeholder="Enter account number"
+                    disabled={loading}
+                  />
+                  {errors.accountNumber && (
+                    <span className="error-text">{errors.accountNumber}</span>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label>IFSC Code *</label>
+                  <input
+                    type="text"
+                    value={bankDetails.ifscCode}
+                    onChange={(e) => handleBankDetailsChange('ifscCode', e.target.value.toUpperCase())}
+                    className={errors.ifscCode ? 'error' : ''}
+                    placeholder="Enter IFSC code"
+                    maxLength="11"
+                    disabled={loading}
+                  />
+                  {errors.ifscCode && (
+                    <span className="error-text">{errors.ifscCode}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Branch</label>
+                <input
+                  type="text"
+                  value={bankDetails.branch}
+                  onChange={(e) => handleBankDetailsChange('branch', e.target.value)}
+                  placeholder="Enter branch name"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Important Information */}
+          <div className="form-section">
+            <div className="info-box">
+              <h4><Target size={20} /> What Happens Next?</h4>
+              <ul>
+                <li><strong>Application Review:</strong> Our team will review your application and documents</li>
+                <li><strong>Verification Process:</strong> We'll verify your business information and documents</li>
+                <li><strong>Approval Notification:</strong> You'll receive an email once your application is approved</li>
+                <li><strong>Dashboard Access:</strong> Start managing your services and bookings</li>
+                <li><strong>Payment Setup:</strong> Begin receiving payments from customers</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Error Message */}
+          {errors.submit && (
+            <div className="error-banner">
+              <AlertCircle size={20} />
+              <span>{errors.submit}</span>
+            </div>
+          )}
+
+          {/* Form Actions */}
+          <div className="form-actions">
+            <button 
+              type="button" 
+              className="back-btn"
+              onClick={onBack}
+              disabled={loading}
+            >
+              <ArrowLeft size={20} />
+              <span>Back to Documents</span>
+            </button>
+
+            <button 
+              type="submit" 
+              className="complete-btn"
+              disabled={loading}
+            >
+              {loading ? (
+                <div className="loading-content">
+                  <div className="spinner"></div>
+                  <span>Completing Registration...</span>
+                </div>
+              ) : (
+                <div className="button-content">
+                  <CheckCircle size={20} />
+                  <span>Complete Registration</span>
+                </div>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };

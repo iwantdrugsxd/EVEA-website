@@ -1,361 +1,527 @@
+// evea-frontend/src/components/VendorRegistration/VendorRegistrationStep1.jsx
 import React, { useState } from 'react';
-import { Building2, Mail, Phone, MapPin, Globe, User } from 'lucide-react';
+import { ArrowRight, Building, User, Mail, Phone, Lock, CheckCircle, AlertCircle } from 'lucide-react';
+import './VendorRegistrationStep1.css';
 
-const VendorRegistrationStep1 = ({ onNext, isLoading }) => {
+const VendorRegistrationStep1 = ({ onNext }) => {
   const [formData, setFormData] = useState({
-    businessInfo: {
-      businessName: '',
-      businessType: '',
-      ownerName: '',
-      email: '',
-      phone: '',
-      alternatePhone: '',
-      businessAddress: {
-        street: '',
-        city: '',
-        state: '',
-        pincode: '',
-        country: 'India'
-      },
-      businessDescription: '',
-      establishedYear: '',
-      website: '',
-      socialMedia: {
-        instagram: '',
-        facebook: '',
-        youtube: '',
-        linkedin: ''
-      }
+    // businessInfo structure - matches Vendor model exactly
+    businessName: '',
+    businessType: '',
+    ownerName: '',
+    email: '',
+    phone: '',
+    alternatePhone: '',
+    businessAddress: {
+      street: '',
+      city: '',
+      state: '',
+      pincode: '',
+      country: 'India'
     },
+    businessDescription: '',
+    establishedYear: '',
+    website: '',
+    socialMedia: {
+      instagram: '',
+      facebook: '',
+      youtube: '',
+      linkedin: ''
+    },
+    // verification structure - matches Vendor model exactly  
+    gstNumber: '',
+    panNumber: '',
+    // authentication
     password: '',
-    confirmPassword: '',
-    primaryCategories: []
+    confirmPassword: ''
   });
 
   const [errors, setErrors] = useState({});
-
-  const serviceCategories = [
-    { id: 'photography', name: 'Photography', icon: '📸' },
-    { id: 'catering', name: 'Catering', icon: '🍽️' },
-    { id: 'decoration', name: 'Decoration', icon: '🎨' },
-    { id: 'venue', name: 'Venue', icon: '🏛️' },
-    { id: 'music_entertainment', name: 'Music & Entertainment', icon: '🎵' },
-    { id: 'planning', name: 'Event Planning', icon: '📋' },
-    { id: 'transport', name: 'Transportation', icon: '🚗' },
-    { id: 'makeup_styling', name: 'Makeup & Styling', icon: '💄' },
-    { id: 'floral', name: 'Floral Arrangements', icon: '🌸' },
-    { id: 'lighting', name: 'Lighting & Sound', icon: '💡' }
-  ];
-
-  const validateForm = () => {
-    const newErrors = {};
-    
-    if (!formData.businessInfo.businessName.trim()) {
-      newErrors.businessName = 'Business name is required';
-    }
-    
-    if (!formData.businessInfo.businessType) {
-      newErrors.businessType = 'Business type is required';
-    }
-    
-    if (!formData.businessInfo.ownerName.trim()) {
-      newErrors.ownerName = 'Owner name is required';
-    }
-    
-    if (!formData.businessInfo.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.businessInfo.email)) {
-      newErrors.email = 'Email is invalid';
-    }
-    
-    if (!formData.businessInfo.phone.trim()) {
-      newErrors.phone = 'Phone number is required';
-    } else if (!/^\d{10}$/.test(formData.businessInfo.phone.replace(/\D/g, ''))) {
-      newErrors.phone = 'Phone number must be 10 digits';
-    }
-    
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters';
-    }
-    
-    if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-    
-    if (formData.primaryCategories.length === 0) {
-      newErrors.categories = 'Please select at least one service category';
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+  const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const handleInputChange = (field, value) => {
     if (field.includes('.')) {
-      const [parent, child, grandchild] = field.split('.');
+      const [parent, child] = field.split('.');
       setFormData(prev => ({
         ...prev,
         [parent]: {
           ...prev[parent],
-          [child]: grandchild ? {
-            ...prev[parent][child],
-            [grandchild]: value
-          } : value
+          [child]: value
         }
       }));
     } else {
       setFormData(prev => ({ ...prev, [field]: value }));
     }
-    
+
     // Clear error when user starts typing
-    if (errors[field.split('.').pop()]) {
-      setErrors(prev => ({ ...prev, [field.split('.').pop()]: '' }));
+    const errorKey = field.split('.').pop();
+    if (errors[errorKey]) {
+      setErrors(prev => ({ ...prev, [errorKey]: '' }));
     }
   };
 
-  const handleCategoryToggle = (categoryId) => {
-    setFormData(prev => ({
-      ...prev,
-      primaryCategories: prev.primaryCategories.includes(categoryId)
-        ? prev.primaryCategories.filter(id => id !== categoryId)
-        : [...prev.primaryCategories, categoryId]
-    }));
-    
-    if (errors.categories) {
-      setErrors(prev => ({ ...prev, categories: '' }));
+  const validateForm = () => {
+    const newErrors = {};
+
+    // Required field validations
+    if (!formData.businessName.trim()) newErrors.businessName = 'Business name is required';
+    if (!formData.businessType) newErrors.businessType = 'Business type is required';
+    if (!formData.ownerName.trim()) newErrors.ownerName = 'Owner name is required';
+    if (!formData.email.trim()) newErrors.email = 'Email is required';
+    if (!formData.phone.trim()) newErrors.phone = 'Phone number is required';
+    if (!formData.password) newErrors.password = 'Password is required';
+    if (!formData.panNumber.trim()) newErrors.panNumber = 'PAN number is required';
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (formData.email && !emailRegex.test(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
     }
+
+    // Phone validation
+    const phoneRegex = /^[6-9]\d{9}$/;
+    if (formData.phone && !phoneRegex.test(formData.phone)) {
+      newErrors.phone = 'Please enter a valid 10-digit mobile number';
+    }
+
+    // Password validation
+    if (formData.password && formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    // Confirm password validation
+    if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+
+    // PAN validation
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+    if (formData.panNumber && !panRegex.test(formData.panNumber.toUpperCase())) {
+      newErrors.panNumber = 'Please enter a valid PAN number (e.g., ABCDE1234F)';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (validateForm()) {
-      onNext(formData);
+    if (!validateForm()) {
+      return;
+    }
+
+    setLoading(true);
+    setErrors({});
+
+    try {
+      // Prepare data exactly matching Vendor model structure
+      const submitData = {
+        // businessInfo fields
+        businessName: formData.businessName.trim(),
+        businessType: formData.businessType,
+        ownerName: formData.ownerName.trim(),
+        email: formData.email.toLowerCase().trim(),
+        phone: formData.phone.trim(),
+        alternatePhone: formData.alternatePhone?.trim() || '',
+        businessAddress: {
+          street: formData.businessAddress.street || '',
+          city: formData.businessAddress.city || '',
+          state: formData.businessAddress.state || '',
+          pincode: formData.businessAddress.pincode || '',
+          country: 'India'
+        },
+        businessDescription: formData.businessDescription?.trim() || '',
+        establishedYear: formData.establishedYear ? parseInt(formData.establishedYear) : null,
+        website: formData.website?.trim() || '',
+        socialMedia: {
+          instagram: formData.socialMedia.instagram || '',
+          facebook: formData.socialMedia.facebook || '',
+          youtube: formData.socialMedia.youtube || '',
+          linkedin: formData.socialMedia.linkedin || ''
+        },
+        // verification fields
+        gstNumber: formData.gstNumber?.trim().toUpperCase() || '',
+        panNumber: formData.panNumber.trim().toUpperCase(),
+        // authentication
+        password: formData.password
+      };
+
+      console.log('🚀 Submitting Step 1 data:', { ...submitData, password: '[HIDDEN]' });
+
+      // Direct API call instead of using context (for debugging)
+      const response = await fetch('http://localhost:5000/api/vendors/register/step1', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(submitData)
+      });
+
+      const result = await response.json();
+      console.log('📡 API Response:', result);
+
+      if (result.success) {
+        console.log('✅ Step 1 completed successfully');
+        setSuccessMessage(result.message || 'Registration successful!');
+        
+        // Call onNext with vendor ID after showing success
+        setTimeout(() => {
+          if (onNext) {
+            onNext(result.data.vendorId);
+          } else {
+            console.warn('⚠️ onNext function not provided');
+          }
+        }, 1500);
+
+      } else {
+        console.log('❌ Registration failed:', result.message);
+        setErrors({ submit: result.message || 'Registration failed' });
+      }
+
+    } catch (error) {
+      console.error('❌ Network/API error:', error);
+      setErrors({ 
+        submit: 'Network error. Please check if backend server is running.' 
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="vendor-registration-step">
-      <div className="step-header">
-        <h2 className="step-title">Tell Us About Your Business</h2>
-        <p className="step-description">
-          Provide your basic business information to get started with the registration process
-        </p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="registration-form">
-        {/* Basic Business Information */}
-        <div className="form-section">
-          <h3 className="section-title">
-            <Building2 size={20} />
-            Business Information
-          </h3>
-          
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">Business Name *</label>
-              <input
-                type="text"
-                className={`form-input ${errors.businessName ? 'error' : ''}`}
-                placeholder="Enter your business name"
-                value={formData.businessInfo.businessName}
-                onChange={(e) => handleInputChange('businessInfo.businessName', e.target.value)}
-              />
-              {errors.businessName && <span className="error-message">{errors.businessName}</span>}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Business Type *</label>
-              <select
-                className={`form-select ${errors.businessType ? 'error' : ''}`}
-                value={formData.businessInfo.businessType}
-                onChange={(e) => handleInputChange('businessInfo.businessType', e.target.value)}
-              >
-                <option value="">Select business type</option>
-                <option value="sole_proprietorship">Sole Proprietorship</option>
-                <option value="partnership">Partnership</option>
-                <option value="llp">Limited Liability Partnership (LLP)</option>
-                <option value="private_limited">Private Limited Company</option>
-                <option value="public_limited">Public Limited Company</option>
-              </select>
-              {errors.businessType && <span className="error-message">{errors.businessType}</span>}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Owner Name *</label>
-              <input
-                type="text"
-                className={`form-input ${errors.ownerName ? 'error' : ''}`}
-                placeholder="Enter owner's full name"
-                value={formData.businessInfo.ownerName}
-                onChange={(e) => handleInputChange('businessInfo.ownerName', e.target.value)}
-              />
-              {errors.ownerName && <span className="error-message">{errors.ownerName}</span>}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Email Address *</label>
-              <input
-                type="email"
-                className={`form-input ${errors.email ? 'error' : ''}`}
-                placeholder="Enter business email"
-                value={formData.businessInfo.email}
-                onChange={(e) => handleInputChange('businessInfo.email', e.target.value)}
-              />
-              {errors.email && <span className="error-message">{errors.email}</span>}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Phone Number *</label>
-              <input
-                type="tel"
-                className={`form-input ${errors.phone ? 'error' : ''}`}
-                placeholder="Enter business phone number"
-                value={formData.businessInfo.phone}
-                onChange={(e) => handleInputChange('businessInfo.phone', e.target.value)}
-              />
-              {errors.phone && <span className="error-message">{errors.phone}</span>}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Alternate Phone</label>
-              <input
-                type="tel"
-                className="form-input"
-                placeholder="Alternate contact number"
-                value={formData.businessInfo.alternatePhone}
-                onChange={(e) => handleInputChange('businessInfo.alternatePhone', e.target.value)}
-              />
-            </div>
+    <div className="vendor-registration-step1">
+      <div className="registration-container">
+        <div className="registration-header">
+          <h1>Vendor Registration</h1>
+          <p>Step 1 of 3: Business Information</p>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: '33%' }}></div>
           </div>
         </div>
 
-        {/* Address Information */}
-        <div className="form-section">
-          <h3 className="section-title">
-            <MapPin size={20} />
-            Business Address
-          </h3>
-          
-          <div className="form-grid">
-            <div className="form-group full-width">
-              <label className="form-label">Street Address</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Enter street address"
-                value={formData.businessInfo.businessAddress.street}
-                onChange={(e) => handleInputChange('businessInfo.businessAddress.street', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">City</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Enter city"
-                value={formData.businessInfo.businessAddress.city}
-                onChange={(e) => handleInputChange('businessInfo.businessAddress.city', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">State</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Enter state"
-                value={formData.businessInfo.businessAddress.state}
-                onChange={(e) => handleInputChange('businessInfo.businessAddress.state', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">PIN Code</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Enter PIN code"
-                value={formData.businessInfo.businessAddress.pincode}
-                onChange={(e) => handleInputChange('businessInfo.businessAddress.pincode', e.target.value)}
-              />
-            </div>
+        {successMessage && (
+          <div className="success-banner">
+            <CheckCircle size={20} />
+            <span>{successMessage}</span>
           </div>
-        </div>
+        )}
 
-        {/* Service Categories */}
-        <div className="form-section">
-          <h3 className="section-title">
-            <User size={20} />
-            Service Categories *
-          </h3>
-          
-          <p className="section-description">
-            Select the primary categories of services your business provides
-          </p>
-          
-          <div className="categories-grid">
-            {serviceCategories.map((category) => (
-              <div
-                key={category.id}
-                className={`category-card ${formData.primaryCategories.includes(category.id) ? 'selected' : ''}`}
-                onClick={() => handleCategoryToggle(category.id)}
-              >
-                <div className="category-icon">{category.icon}</div>
-                <span className="category-name">{category.name}</span>
+        <form onSubmit={handleSubmit} className="registration-form">
+          {/* Business Information */}
+          <div className="form-section">
+            <h3><Building size={20} /> Business Information</h3>
+            
+            <div className="form-row">
+              <div className="form-group">
+                <label>Business Name *</label>
+                <input
+                  type="text"
+                  value={formData.businessName}
+                  onChange={(e) => handleInputChange('businessName', e.target.value)}
+                  className={errors.businessName ? 'error' : ''}
+                  placeholder="Enter your business name"
+                  disabled={loading}
+                />
+                {errors.businessName && <span className="error-text">{errors.businessName}</span>}
               </div>
-            ))}
-          </div>
-          {errors.categories && <span className="error-message">{errors.categories}</span>}
-        </div>
+              
+              <div className="form-group">
+                <label>Business Type *</label>
+                <select
+                  value={formData.businessType}
+                  onChange={(e) => handleInputChange('businessType', e.target.value)}
+                  className={errors.businessType ? 'error' : ''}
+                  disabled={loading}
+                >
+                  <option value="">Select business type</option>
+                  <option value="sole_proprietorship">Sole Proprietorship</option>
+                  <option value="partnership">Partnership</option>
+                  <option value="llp">Limited Liability Partnership (LLP)</option>
+                  <option value="private_limited">Private Limited Company</option>
+                  <option value="public_limited">Public Limited Company</option>
+                </select>
+                {errors.businessType && <span className="error-text">{errors.businessType}</span>}
+              </div>
+            </div>
 
-        {/* Account Setup */}
-        <div className="form-section">
-          <h3 className="section-title">
-            <User size={20} />
-            Account Setup
-          </h3>
-          
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">Password *</label>
-              <input
-                type="password"
-                className={`form-input ${errors.password ? 'error' : ''}`}
-                placeholder="Create a strong password"
-                value={formData.password}
-                onChange={(e) => handleInputChange('password', e.target.value)}
-              />
-              {errors.password && <span className="error-message">{errors.password}</span>}
+            <div className="form-row">
+              <div className="form-group">
+                <label>GST Number</label>
+                <input
+                  type="text"
+                  value={formData.gstNumber}
+                  onChange={(e) => handleInputChange('gstNumber', e.target.value.toUpperCase())}
+                  placeholder="Enter GST number (optional)"
+                  maxLength="15"
+                  disabled={loading}
+                />
+                <small className="field-help">GST registration is optional</small>
+              </div>
+              
+              <div className="form-group">
+                <label>PAN Number *</label>
+                <input
+                  type="text"
+                  value={formData.panNumber}
+                  onChange={(e) => handleInputChange('panNumber', e.target.value.toUpperCase())}
+                  className={errors.panNumber ? 'error' : ''}
+                  placeholder="Enter PAN number"
+                  maxLength="10"
+                  disabled={loading}
+                />
+                {errors.panNumber && <span className="error-text">{errors.panNumber}</span>}
+                <small className="field-help">Format: ABCDE1234F</small>
+              </div>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Confirm Password *</label>
-              <input
-                type="password"
-                className={`form-input ${errors.confirmPassword ? 'error' : ''}`}
-                placeholder="Confirm your password"
-                value={formData.confirmPassword}
-                onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+              <label>Business Description</label>
+              <textarea
+                value={formData.businessDescription}
+                onChange={(e) => handleInputChange('businessDescription', e.target.value)}
+                placeholder="Briefly describe your business and services"
+                rows="3"
+                disabled={loading}
               />
-              {errors.confirmPassword && <span className="error-message">{errors.confirmPassword}</span>}
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Established Year</label>
+                <input
+                  type="number"
+                  value={formData.establishedYear}
+                  onChange={(e) => handleInputChange('establishedYear', e.target.value)}
+                  placeholder="Year business was established"
+                  min="1900"
+                  max={new Date().getFullYear()}
+                  disabled={loading}
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Website</label>
+                <input
+                  type="url"
+                  value={formData.website}
+                  onChange={(e) => handleInputChange('website', e.target.value)}
+                  placeholder="https://yourwebsite.com"
+                  disabled={loading}
+                />
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="form-actions">
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={isLoading}
-          >
-            {isLoading ? 'Processing...' : 'Continue to Next Step'}
-          </button>
-        </div>
-      </form>
+          {/* Owner Information */}
+          <div className="form-section">
+            <h3><User size={20} /> Owner Information</h3>
+            
+            <div className="form-group">
+              <label>Owner Name *</label>
+              <input
+                type="text"
+                value={formData.ownerName}
+                onChange={(e) => handleInputChange('ownerName', e.target.value)}
+                className={errors.ownerName ? 'error' : ''}
+                placeholder="Enter owner's full name"
+                disabled={loading}
+              />
+              {errors.ownerName && <span className="error-text">{errors.ownerName}</span>}
+            </div>
+          </div>
+
+          {/* Contact Information */}
+          <div className="form-section">
+            <h3><Mail size={20} /> Contact Information</h3>
+            
+            <div className="form-row">
+              <div className="form-group">
+                <label>Email Address *</label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => handleInputChange('email', e.target.value)}
+                  className={errors.email ? 'error' : ''}
+                  placeholder="Enter business email"
+                  disabled={loading}
+                />
+                {errors.email && <span className="error-text">{errors.email}</span>}
+              </div>
+              
+              <div className="form-group">
+                <label>Phone Number *</label>
+                <input
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => handleInputChange('phone', e.target.value)}
+                  className={errors.phone ? 'error' : ''}
+                  placeholder="Enter 10-digit mobile number"
+                  maxLength="10"
+                  disabled={loading}
+                />
+                {errors.phone && <span className="error-text">{errors.phone}</span>}
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Alternate Phone</label>
+              <input
+                type="tel"
+                value={formData.alternatePhone}
+                onChange={(e) => handleInputChange('alternatePhone', e.target.value)}
+                placeholder="Enter alternate number (optional)"
+                maxLength="10"
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          {/* Business Address */}
+          <div className="form-section">
+            <h3>Business Address</h3>
+            
+            <div className="form-group">
+              <label>Street Address</label>
+              <input
+                type="text"
+                value={formData.businessAddress.street}
+                onChange={(e) => handleInputChange('businessAddress.street', e.target.value)}
+                placeholder="Enter street address"
+                disabled={loading}
+              />
+            </div>
+            
+            <div className="form-row">
+              <div className="form-group">
+                <label>City</label>
+                <input
+                  type="text"
+                  value={formData.businessAddress.city}
+                  onChange={(e) => handleInputChange('businessAddress.city', e.target.value)}
+                  placeholder="Enter city"
+                  disabled={loading}
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>State</label>
+                <input
+                  type="text"
+                  value={formData.businessAddress.state}
+                  onChange={(e) => handleInputChange('businessAddress.state', e.target.value)}
+                  placeholder="Enter state"
+                  disabled={loading}
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Pincode</label>
+                <input
+                  type="text"
+                  value={formData.businessAddress.pincode}
+                  onChange={(e) => handleInputChange('businessAddress.pincode', e.target.value)}
+                  placeholder="Enter pincode"
+                  maxLength="6"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Social Media */}
+          <div className="form-section">
+            <h3>Social Media (Optional)</h3>
+            
+            <div className="form-row">
+              <div className="form-group">
+                <label>Instagram</label>
+                <input
+                  type="text"
+                  value={formData.socialMedia.instagram}
+                  onChange={(e) => handleInputChange('socialMedia.instagram', e.target.value)}
+                  placeholder="Instagram handle or URL"
+                  disabled={loading}
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Facebook</label>
+                <input
+                  type="text"
+                  value={formData.socialMedia.facebook}
+                  onChange={(e) => handleInputChange('socialMedia.facebook', e.target.value)}
+                  placeholder="Facebook page URL"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Account Setup */}
+          <div className="form-section">
+            <h3><Lock size={20} /> Account Setup</h3>
+            
+            <div className="form-row">
+              <div className="form-group">
+                <label>Password *</label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => handleInputChange('password', e.target.value)}
+                  className={errors.password ? 'error' : ''}
+                  placeholder="Create a secure password"
+                  disabled={loading}
+                />
+                {errors.password && <span className="error-text">{errors.password}</span>}
+              </div>
+              
+              <div className="form-group">
+                <label>Confirm Password *</label>
+                <input
+                  type="password"
+                  value={formData.confirmPassword}
+                  onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                  className={errors.confirmPassword ? 'error' : ''}
+                  placeholder="Confirm your password"
+                  disabled={loading}
+                />
+                {errors.confirmPassword && <span className="error-text">{errors.confirmPassword}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Error Message */}
+          {errors.submit && (
+            <div className="error-banner">
+              <AlertCircle size={20} />
+              <span>{errors.submit}</span>
+            </div>
+          )}
+
+          {/* Submit Button */}
+          <div className="form-actions">
+            <button 
+              type="submit" 
+              className="next-step-btn"
+              disabled={loading}
+            >
+              {loading ? (
+                <div className="loading-content">
+                  <div className="spinner"></div>
+                  <span>Creating Account...</span>
+                </div>
+              ) : (
+                <div className="button-content">
+                  <span>Continue to Document Upload</span>
+                  <ArrowRight size={20} />
+                </div>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };
