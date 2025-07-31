@@ -1,58 +1,88 @@
-// controllers/adminController.js
+// src/controllers/adminController.js
 const Vendor = require('../models/Vendor');
 const VendorService = require('../models/VendorService');
-const RecommendationProfile = require('../models/RecommendationProfile');
-const { sendVendorApprovalEmail, sendVendorRejectionEmail } = require('../services/emailService');
-const { getFileInfo } = require('../services/googleDriveService');
+const User = require('../models/User');
 
-// ==================== VENDOR APPLICATION MANAGEMENT ====================
-
-// Get all vendor applications
+// Get All Vendor Applications
 exports.getAllVendorApplications = async (req, res) => {
   try {
-    const { status, page = 1, limit = 10, sortBy = 'submittedAt', sortOrder = 'desc' } = req.query;
+    const { 
+      page = 1, 
+      limit = 10, 
+      status = 'all', 
+      search = '',
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Build filter query
+    const filter = {};
     
-    const query = {};
-    if (status) {
-      query.registrationStatus = status;
+    if (status !== 'all') {
+      filter.registrationStatus = status;
     }
 
-    const vendors = await Vendor.find(query)
+    if (search) {
+      filter.$or = [
+        { 'businessInfo.businessName': { $regex: search, $options: 'i' } },
+        { 'contactInfo.email': { $regex: search, $options: 'i' } },
+        { 'contactInfo.ownerName': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Build sort object
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Execute query with pagination
+    const vendors = await Vendor.find(filter)
       .select('-password')
-      .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
+      .sort(sort)
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .lean();
 
-    const total = await Vendor.countDocuments(query);
+    // Get total count for pagination
+    const total = await Vendor.countDocuments(filter);
 
-    // Enhance vendor data with document verification status
-    const enhancedVendors = await Promise.all(
-      vendors.map(async (vendor) => {
-        const documents = vendor.verification?.documents || {};
-        const documentStatus = {
-          total: Object.keys(documents).length,
-          verified: Object.values(documents).filter(doc => doc.verified).length,
-          pending: Object.values(documents).filter(doc => !doc.verified).length
-        };
+    // Calculate statistics
+    const stats = await Vendor.aggregate([
+      {
+        $group: {
+          _id: '$registrationStatus',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
-        return {
-          ...vendor,
-          documentStatus
-        };
-      })
-    );
+    const statusStats = {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+      incomplete: 0
+    };
+
+    stats.forEach(stat => {
+      statusStats[stat._id] = stat.count;
+    });
 
     res.json({
       success: true,
       data: {
-        vendors: enhancedVendors,
+        vendors,
         pagination: {
-          currentPage: page,
+          currentPage: parseInt(page),
           totalPages: Math.ceil(total / limit),
           totalVendors: total,
           hasNextPage: page < Math.ceil(total / limit),
           hasPrevPage: page > 1
+        },
+        statistics: statusStats,
+        filters: {
+          status,
+          search,
+          sortBy,
+          sortOrder
         }
       }
     });
@@ -67,7 +97,7 @@ exports.getAllVendorApplications = async (req, res) => {
   }
 };
 
-// Get specific vendor application by ID
+// Get Vendor Application by ID
 exports.getVendorApplicationById = async (req, res) => {
   try {
     const { vendorId } = req.params;
@@ -79,45 +109,42 @@ exports.getVendorApplicationById = async (req, res) => {
     if (!vendor) {
       return res.status(404).json({
         success: false,
-        message: 'Vendor not found'
+        message: 'Vendor application not found'
       });
     }
 
-    // Get vendor services
+    // Get vendor services if any
     const services = await VendorService.find({ vendorId }).lean();
 
-    // Get document details from Google Drive
-    const documents = vendor.verification?.documents || {};
-    const documentDetails = {};
+    // Calculate document verification status
+    const documentStats = {
+      total: 0,
+      verified: 0,
+      pending: 0,
+      rejected: 0
+    };
 
-    for (const [docType, docInfo] of Object.entries(documents)) {
-      if (docInfo.driveFileId) {
-        try {
-          const fileInfo = await getFileInfo(docInfo.driveFileId);
-          documentDetails[docType] = {
-            ...docInfo,
-            fileInfo,
-            downloadUrl: `https://drive.google.com/uc?export=download&id=${docInfo.driveFileId}`,
-            viewUrl: `https://drive.google.com/file/d/${docInfo.driveFileId}/view`
-          };
-        } catch (error) {
-          console.error(`Error getting file info for ${docType}:`, error);
-          documentDetails[docType] = docInfo;
+    if (vendor.documents) {
+      documentStats.total = Object.keys(vendor.documents).length;
+      
+      Object.values(vendor.documents).forEach(doc => {
+        if (doc.verificationStatus === 'verified') {
+          documentStats.verified++;
+        } else if (doc.verificationStatus === 'rejected') {
+          documentStats.rejected++;
+        } else {
+          documentStats.pending++;
         }
-      }
+      });
     }
 
     res.json({
       success: true,
       data: {
-        vendor: {
-          ...vendor,
-          verification: {
-            ...vendor.verification,
-            documents: documentDetails
-          }
-        },
-        services
+        vendor,
+        services,
+        documentStats,
+        timeline: generateVendorTimeline(vendor)
       }
     });
 
@@ -131,13 +158,15 @@ exports.getVendorApplicationById = async (req, res) => {
   }
 };
 
-// Approve vendor application
+// Approve Vendor Application
 exports.approveVendorApplication = async (req, res) => {
   try {
     const { vendorId } = req.params;
-    const { adminNotes } = req.body;
+    const { approvalNotes } = req.body;
+    const adminId = req.user.adminId || req.user.id;
 
     const vendor = await Vendor.findById(vendorId);
+    
     if (!vendor) {
       return res.status(404).json({
         success: false,
@@ -145,62 +174,38 @@ exports.approveVendorApplication = async (req, res) => {
       });
     }
 
-    if (vendor.registrationStatus !== 'pending_review') {
+    if (vendor.registrationStatus === 'approved') {
       return res.status(400).json({
         success: false,
-        message: 'Vendor application is not in pending review status'
-      });
-    }
-
-    // Check if all documents are verified
-    const documents = vendor.verification?.documents || {};
-    const allDocsVerified = Object.values(documents).every(doc => doc.verified);
-
-    if (!allDocsVerified) {
-      return res.status(400).json({
-        success: false,
-        message: 'All documents must be verified before approval'
+        message: 'Vendor is already approved'
       });
     }
 
     // Update vendor status
     vendor.registrationStatus = 'approved';
     vendor.approvedAt = new Date();
-    
-    if (adminNotes) {
-      vendor.adminNotes.push({
-        note: adminNotes,
-        addedBy: req.admin.email,
-        addedAt: new Date()
-      });
-    }
+    vendor.approvedBy = adminId;
+    vendor.approvalNotes = approvalNotes;
+    vendor.isActive = true;
 
     await vendor.save();
 
-    // Approve all vendor services
-    await VendorService.updateMany(
-      { vendorId },
-      { $set: { isApproved: true, isActive: true } }
-    );
-
-    // Create recommendation profile
-    await this.createRecommendationProfile(vendorId);
-
-    // Send approval email
-    await sendVendorApprovalEmail(vendor);
+    // In a real implementation, send approval email to vendor
+    // await sendVendorApprovalEmail(vendor);
 
     res.json({
       success: true,
       message: 'Vendor application approved successfully',
       data: {
         vendorId: vendor._id,
-        status: vendor.registrationStatus,
+        businessName: vendor.businessInfo.businessName,
+        email: vendor.contactInfo.email,
         approvedAt: vendor.approvedAt
       }
     });
 
   } catch (error) {
-    console.error('Approve vendor error:', error);
+    console.error('Approve vendor application error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to approve vendor application',
@@ -209,11 +214,12 @@ exports.approveVendorApplication = async (req, res) => {
   }
 };
 
-// Reject vendor application
+// Reject Vendor Application
 exports.rejectVendorApplication = async (req, res) => {
   try {
     const { vendorId } = req.params;
-    const { rejectionReason, adminNotes } = req.body;
+    const { rejectionReason, rejectionNotes } = req.body;
+    const adminId = req.user.adminId || req.user.id;
 
     if (!rejectionReason) {
       return res.status(400).json({
@@ -223,6 +229,7 @@ exports.rejectVendorApplication = async (req, res) => {
     }
 
     const vendor = await Vendor.findById(vendorId);
+    
     if (!vendor) {
       return res.status(404).json({
         success: false,
@@ -233,30 +240,29 @@ exports.rejectVendorApplication = async (req, res) => {
     // Update vendor status
     vendor.registrationStatus = 'rejected';
     vendor.rejectedAt = new Date();
-    
-    vendor.adminNotes.push({
-      note: `Rejected: ${rejectionReason}${adminNotes ? ` - ${adminNotes}` : ''}`,
-      addedBy: req.admin.email,
-      addedAt: new Date()
-    });
+    vendor.rejectedBy = adminId;
+    vendor.rejectionReason = rejectionReason;
+    vendor.rejectionNotes = rejectionNotes;
 
     await vendor.save();
 
-    // Send rejection email
-    await sendVendorRejectionEmail(vendor, rejectionReason);
+    // In a real implementation, send rejection email to vendor
+    // await sendVendorRejectionEmail(vendor);
 
     res.json({
       success: true,
       message: 'Vendor application rejected',
       data: {
         vendorId: vendor._id,
-        status: vendor.registrationStatus,
-        rejectedAt: vendor.rejectedAt
+        businessName: vendor.businessInfo.businessName,
+        email: vendor.contactInfo.email,
+        rejectedAt: vendor.rejectedAt,
+        rejectionReason: vendor.rejectionReason
       }
     });
 
   } catch (error) {
-    console.error('Reject vendor error:', error);
+    console.error('Reject vendor application error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to reject vendor application',
@@ -265,13 +271,22 @@ exports.rejectVendorApplication = async (req, res) => {
   }
 };
 
-// Update document verification status
+// Update Document Verification Status
 exports.updateDocumentVerification = async (req, res) => {
   try {
     const { vendorId, documentType } = req.params;
-    const { verified, notes } = req.body;
+    const { verificationStatus, verificationNotes } = req.body;
+    const adminId = req.user.adminId || req.user.id;
+
+    if (!['verified', 'rejected', 'pending'].includes(verificationStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification status'
+      });
+    }
 
     const vendor = await Vendor.findById(vendorId);
+    
     if (!vendor) {
       return res.status(404).json({
         success: false,
@@ -279,27 +294,47 @@ exports.updateDocumentVerification = async (req, res) => {
       });
     }
 
-    const documentPath = `verification.documents.${documentType}.verified`;
-    const updateObj = { [documentPath]: verified };
-
-    if (notes) {
-      vendor.adminNotes.push({
-        note: `Document ${documentType} ${verified ? 'verified' : 'rejected'}: ${notes}`,
-        addedBy: req.admin.email,
-        addedAt: new Date()
+    if (!vendor.documents || !vendor.documents[documentType]) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found'
       });
     }
 
-    await Vendor.updateOne({ _id: vendorId }, updateObj);
+    // Update document verification
+    vendor.documents[documentType].verificationStatus = verificationStatus;
+    vendor.documents[documentType].verifiedBy = adminId;
+    vendor.documents[documentType].verifiedAt = new Date();
+    vendor.documents[documentType].verificationNotes = verificationNotes;
+
+    // Mark the documents field as modified for Mongoose
+    vendor.markModified('documents');
     await vendor.save();
+
+    // Check if all documents are verified
+    const allDocuments = Object.values(vendor.documents);
+    const allVerified = allDocuments.every(doc => doc.verificationStatus === 'verified');
+    const hasRejected = allDocuments.some(doc => doc.verificationStatus === 'rejected');
+
+    let autoStatusUpdate = null;
+    if (allVerified && vendor.registrationStatus === 'pending') {
+      // All documents verified - could auto-approve or mark as ready for review
+      autoStatusUpdate = 'ready_for_review';
+    } else if (hasRejected && vendor.registrationStatus === 'pending') {
+      // Has rejected documents - mark as needs_revision
+      autoStatusUpdate = 'needs_revision';
+    }
 
     res.json({
       success: true,
-      message: `Document ${documentType} ${verified ? 'verified' : 'rejected'} successfully`,
+      message: 'Document verification updated successfully',
       data: {
-        vendorId,
+        vendorId: vendor._id,
         documentType,
-        verified
+        verificationStatus,
+        verifiedAt: vendor.documents[documentType].verifiedAt,
+        autoStatusUpdate,
+        allDocumentsVerified: allVerified
       }
     });
 
@@ -313,40 +348,69 @@ exports.updateDocumentVerification = async (req, res) => {
   }
 };
 
-// Helper function to create recommendation profile
-exports.createRecommendationProfile = async (vendorId) => {
-  try {
-    const vendor = await Vendor.findById(vendorId);
-    const services = await VendorService.find({ vendorId });
+// Helper function to generate vendor timeline
+function generateVendorTimeline(vendor) {
+  const timeline = [];
 
-    // Extract data for recommendation profile from vendor and services
-    const profile = new RecommendationProfile({
-      vendorId,
-      eventExpertise: {
-        primaryEventTypes: this.extractEventTypes(services),
-        eventSizeExpertise: this.extractSizeExpertise(services)
-      },
-      budgetExpertise: this.extractBudgetExpertise(services),
-      geographicExpertise: {
-        serviceAreas: [{
-          city: vendor.businessInfo.businessAddress.city,
-          state: vendor.businessInfo.businessAddress.state,
-          radiusKm: 50, // Default radius
-          isHomeBased: true
-        }]
-      },
-      qualityIndicators: {
-        responseTime: 24, // Default
-        yearsOfExperience: new Date().getFullYear() - (vendor.businessInfo.establishedYear || new Date().getFullYear()),
-        completionRate: 100, // Starting value
-        repeatClientRate: 0, // Will be updated based on bookings
-        referralRate: 0
-      }
+  // Registration started
+  if (vendor.createdAt) {
+    timeline.push({
+      event: 'Registration Started',
+      date: vendor.createdAt,
+      status: 'completed',
+      description: 'Vendor initiated registration process'
     });
-
-    await profile.save();
-    console.log('Recommendation profile created for vendor:', vendorId);
-  } catch (error) {
-    console.error('Error creating recommendation profile:', error);
   }
-};
+
+  // Documents uploaded
+  if (vendor.documents && Object.keys(vendor.documents).length > 0) {
+    timeline.push({
+      event: 'Documents Uploaded',
+      date: vendor.updatedAt, // You might want to track this separately
+      status: 'completed',
+      description: `${Object.keys(vendor.documents).length} documents uploaded`
+    });
+  }
+
+  // Application submitted
+  if (vendor.registrationCompletedAt) {
+    timeline.push({
+      event: 'Application Submitted',
+      date: vendor.registrationCompletedAt,
+      status: 'completed',
+      description: 'Complete application submitted for review'
+    });
+  }
+
+  // Document verification
+  if (vendor.documents) {
+    const verifiedDocs = Object.values(vendor.documents).filter(doc => doc.verificationStatus === 'verified');
+    if (verifiedDocs.length > 0) {
+      timeline.push({
+        event: 'Documents Verified',
+        date: verifiedDocs[0].verifiedAt,
+        status: 'completed',
+        description: `${verifiedDocs.length} documents verified`
+      });
+    }
+  }
+
+  // Final approval/rejection
+  if (vendor.approvedAt) {
+    timeline.push({
+      event: 'Application Approved',
+      date: vendor.approvedAt,
+      status: 'completed',
+      description: 'Vendor application approved by admin'
+    });
+  } else if (vendor.rejectedAt) {
+    timeline.push({
+      event: 'Application Rejected',
+      date: vendor.rejectedAt,
+      status: 'rejected',
+      description: vendor.rejectionReason || 'Application rejected by admin'
+    });
+  }
+
+  return timeline.sort((a, b) => new Date(a.date) - new Date(b.date));
+}

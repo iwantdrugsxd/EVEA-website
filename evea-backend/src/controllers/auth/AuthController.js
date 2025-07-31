@@ -1,18 +1,18 @@
-// evea-backend/src/controllers/auth/AuthController.js - Updated with Passport.js integration
+// src/controllers/auth/AuthController.js
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const passport = require('passport');
 const { validationResult } = require('express-validator');
-const AuthService = require('../../services/auth/AuthService');
 const User = require('../../models/User');
-const logger = require('../../config/logger');
+const Vendor = require('../../models/Vendor');
+const Admin = require('../../models/Admin');
 
 class AuthController {
   constructor() {
-    console.log('🎮 Initializing Auth Controller with Passport...');
-    this.authService = new AuthService();
+    console.log('🎮 Initializing Auth Controller...');
   }
 
-  // Generate JWT token
+  // Generate JWT Token
   generateToken(userId, role) {
     return jwt.sign(
       { userId, role },
@@ -25,7 +25,7 @@ class AuthController {
   generateRefreshToken(userId) {
     return jwt.sign(
       { userId },
-      process.env.JWT_REFRESH_SECRET,
+      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d' }
     );
   }
@@ -49,7 +49,7 @@ class AuthController {
     });
   }
 
-  // Register user (existing method - unchanged)
+  // Register User
   async register(req, res, next) {
     try {
       console.log('📝 Registration request received:', req.body.email);
@@ -65,26 +65,57 @@ class AuthController {
         });
       }
 
-      const result = await this.authService.registerUser(req.body);
-      
+      const { firstName, lastName, email, password, phone, role = 'customer' } = req.body;
+
+      // Check if user already exists
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'User already exists with this email'
+        });
+      }
+
+      // Hash password
+      const saltRounds = 12;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+      // Create user
+      const user = await User.create({
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        phone,
+        role
+      });
+
       // Generate tokens
-      const token = this.generateToken(result.user._id, result.user.role);
-      const refreshToken = this.generateRefreshToken(result.user._id);
+      const token = this.generateToken(user._id, user.role);
+      const refreshToken = this.generateRefreshToken(user._id);
       
       // Set cookies
       this.setAuthCookies(res, token, refreshToken);
 
-      console.log('✅ Registration successful:', req.body.email);
+      console.log('✅ Registration successful:', email);
 
       res.status(201).json({
         success: true,
-        message: result.message,
+        message: 'User registered successfully',
         data: {
-          user: result.user,
+          user: {
+            id: user._id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phone: user.phone,
+            role: user.role
+          },
           token,
           refreshToken
         }
       });
+
     } catch (error) {
       console.error('❌ Registration error:', error);
       
@@ -93,26 +124,26 @@ class AuthController {
         const field = Object.keys(error.keyValue)[0];
         return res.status(400).json({
           success: false,
-          message: `${field === 'email' ? 'Email' : 'Phone'} already exists`
+          message: `${field === 'email' ? 'Email' : field} already exists`
         });
       }
 
-      res.status(400).json({
+      res.status(500).json({
         success: false,
-        message: error.message || 'Registration failed'
+        message: 'Registration failed',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
     }
   }
 
-  // Login with Passport Local Strategy
+  // Login with Passport (for the route that calls loginWithPassport)
   async loginWithPassport(req, res, next) {
     try {
-      console.log('🔑 Login request received:', req.body.email);
+      console.log('🔐 Login attempt for:', req.body.email);
       
       // Check validation errors
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        console.log('❌ Login validation errors:', errors.array());
         return res.status(400).json({
           success: false,
           message: 'Validation failed',
@@ -120,12 +151,13 @@ class AuthController {
         });
       }
 
-      passport.authenticate('local', (err, user, info) => {
+      passport.authenticate('local', { session: false }, (err, user, info) => {
         if (err) {
           console.error('❌ Passport authentication error:', err);
           return res.status(500).json({
             success: false,
-            message: 'Authentication error'
+            message: 'Authentication error',
+            error: err.message
           });
         }
 
@@ -133,225 +165,243 @@ class AuthController {
           console.log('❌ Authentication failed:', info.message);
           return res.status(401).json({
             success: false,
-            message: info.message || 'Authentication failed'
+            message: info.message || 'Invalid credentials'
           });
         }
 
-        // Log user in
-        req.logIn(user, (err) => {
-          if (err) {
-            console.error('❌ Login error:', err);
-            return res.status(500).json({
-              success: false,
-              message: 'Login failed'
-            });
+        // Generate tokens
+        const token = this.generateToken(user._id, user.role);
+        const refreshToken = this.generateRefreshToken(user._id);
+        
+        // Set cookies
+        this.setAuthCookies(res, token, refreshToken);
+
+        console.log('✅ Login successful for:', user.email);
+
+        res.json({
+          success: true,
+          message: 'Login successful',
+          data: {
+            user: {
+              id: user._id,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              email: user.email,
+              phone: user.phone,
+              role: user.role
+            },
+            token,
+            refreshToken
           }
-
-          // Generate tokens
-          const token = this.generateToken(user._id, user.role);
-          const refreshToken = this.generateRefreshToken(user._id);
-          
-          // Set cookies
-          this.setAuthCookies(res, token, refreshToken);
-
-          // Remove sensitive data
-          const userResponse = user.toObject();
-          delete userResponse.password;
-          delete userResponse.loginAttempts;
-          delete userResponse.lockUntil;
-          delete userResponse.googleId;
-
-          console.log('✅ Local login successful:', user.email);
-
-          res.status(200).json({
-            success: true,
-            message: 'Login successful',
-            data: {
-              user: userResponse,
-              token,
-              refreshToken
-            }
-          });
         });
+
       })(req, res, next);
+
     } catch (error) {
-      console.error('❌ Login controller error:', error);
-      res.status(401).json({
+      console.error('❌ Login error:', error);
+      res.status(500).json({
         success: false,
-        message: error.message || 'Login failed'
+        message: 'Login failed',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
     }
   }
 
-  // Google OAuth callback handler
-  async googleCallback(req, res) {
+  // Regular login method (fallback)
+  async login(req, res) {
     try {
-      console.log('✅ Google OAuth callback successful:', req.user.email);
-      
+      const { email, password, loginType = 'customer' } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide email and password'
+        });
+      }
+
+      let user;
+
+      // Determine which model to use based on login type
+      switch (loginType) {
+        case 'vendor':
+          user = await Vendor.findOne({ 'contactInfo.email': email }).select('+password');
+          break;
+        case 'admin':
+          user = await Admin.findOne({ email }).select('+password');
+          break;
+        default:
+          user = await User.findOne({ email }).select('+password');
+      }
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid credentials'
+        });
+      }
+
+      // Check password
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid credentials'
+        });
+      }
+
+      // Check vendor approval status
+      if (loginType === 'vendor' && user.registrationStatus !== 'approved') {
+        return res.status(403).json({
+          success: false,
+          message: 'Your vendor account is pending approval'
+        });
+      }
+
       // Generate tokens
-      const token = this.generateToken(req.user._id, req.user.role);
-      const refreshToken = this.generateRefreshToken(req.user._id);
+      const token = this.generateToken(user._id, loginType);
+      const refreshToken = this.generateRefreshToken(user._id);
       
       // Set cookies
       this.setAuthCookies(res, token, refreshToken);
 
-      // Determine frontend redirect URL based on user role
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      let redirectPath = '/shop'; // Default redirect
-      
-      if (req.user.role === 'vendor') {
-        redirectPath = '/vendor-dashboard';
-      } else if (req.user.role === 'customer') {
-        redirectPath = '/shop';
+      // Prepare user data based on type
+      let userData;
+      if (loginType === 'vendor') {
+        userData = {
+          id: user._id,
+          businessName: user.businessInfo.businessName,
+          email: user.contactInfo.email,
+          phone: user.contactInfo.phone,
+          role: 'vendor',
+          registrationStatus: user.registrationStatus
+        };
+      } else if (loginType === 'admin') {
+        userData = {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: 'admin',
+          permissions: user.permissions
+        };
+      } else {
+        userData = {
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone,
+          role: user.role
+        };
       }
 
-      // Create full frontend URL with success parameter
-      const redirectUrl = `${frontendUrl}${redirectPath}?auth=success&method=google`;
+      res.json({
+        success: true,
+        message: 'Login successful',
+        data: {
+          user: userData,
+          token,
+          refreshToken
+        }
+      });
 
-      console.log('🔄 Redirecting Google user to frontend:', redirectUrl);
-      res.redirect(redirectUrl);
     } catch (error) {
-      console.error('❌ Google OAuth callback error:', error);
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      res.redirect(`${frontendUrl}/login?error=callback_failed`);
+      console.error('Login error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Login failed',
+        error: error.message
+      });
     }
   }
 
   // Logout
   async logout(req, res) {
     try {
-      console.log('👋 Logout request received');
-      
-      // Clear cookies
+      // Clear authentication cookies
       res.clearCookie('token');
       res.clearCookie('refreshToken');
-      
-      // Logout from Passport session
-      req.logout((err) => {
-        if (err) {
-          console.error('❌ Logout error:', err);
-          return res.status(500).json({
-            success: false,
-            message: 'Logout failed'
-          });
-        }
-        
-        console.log('✅ Logout successful');
-        res.status(200).json({
-          success: true,
-          message: 'Logged out successfully'
-        });
+
+      res.json({
+        success: true,
+        message: 'Logged out successfully'
       });
+
     } catch (error) {
-      console.error('❌ Logout error:', error);
+      console.error('Logout error:', error);
       res.status(500).json({
         success: false,
-        message: 'Logout failed'
+        message: 'Logout failed',
+        error: error.message
       });
     }
   }
 
-  // Get current user
+  // Get Current User
   async getCurrentUser(req, res) {
     try {
-      // Get token from cookies or Authorization header
-      const token = req.cookies.token || req.headers.authorization?.replace('Bearer ', '');
-      
-      if (!token) {
+      const userId = req.user?.userId || req.user?.id;
+      const userRole = req.user?.role;
+
+      if (!userId) {
         return res.status(401).json({
           success: false,
-          message: 'No authentication token provided'
+          message: 'Authentication required'
         });
       }
 
-      // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.userId);
+      let user;
+      switch (userRole) {
+        case 'vendor':
+          user = await Vendor.findById(userId).select('-password');
+          break;
+        case 'admin':
+          user = await Admin.findById(userId).select('-password');
+          break;
+        default:
+          user = await User.findById(userId).select('-password');
+      }
 
       if (!user) {
-        return res.status(401).json({
+        return res.status(404).json({
           success: false,
           message: 'User not found'
         });
       }
 
-      // Remove sensitive data
-      const userResponse = user.toObject();
-      delete userResponse.password;
-      delete userResponse.loginAttempts;
-      delete userResponse.lockUntil;
-      delete userResponse.googleId;
-
-      res.status(200).json({
+      res.json({
         success: true,
-        data: { user: userResponse }
+        data: { user }
       });
-    } catch (error) {
-      console.error('❌ Get user error:', error);
-      
-      if (error.name === 'TokenExpiredError') {
-        return res.status(401).json({
-          success: false,
-          message: 'Token expired'
-        });
-      }
 
-      res.status(401).json({
+    } catch (error) {
+      console.error('Get current user error:', error);
+      res.status(500).json({
         success: false,
-        message: 'Authentication failed'
+        message: 'Failed to fetch user data',
+        error: error.message
       });
     }
   }
 
-  // Email verification (existing method - unchanged)
-  async verifyEmail(req, res, next) {
-    try {
-      console.log('📧 Email verification request received');
-      
-      const { token } = req.params;
-
-      if (!token) {
-        return res.status(400).json({
-          success: false,
-          message: 'Verification token is required'
-        });
-      }
-
-      const result = await this.authService.verifyEmail(token);
-
-      console.log('✅ Email verification successful');
-
-      res.status(200).json({
-        success: true,
-        message: result.message
-      });
-    } catch (error) {
-      console.error('❌ Email verification controller error:', error);
-      
-      res.status(400).json({
-        success: false,
-        message: error.message || 'Email verification failed'
-      });
-    }
-  }
-
-  // Refresh token
+  // Refresh Token
   async refreshToken(req, res) {
     try {
-      const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
-      
+      const { refreshToken } = req.body;
+
       if (!refreshToken) {
-        return res.status(401).json({
+        return res.status(400).json({
           success: false,
-          message: 'Refresh token required'
+          message: 'Refresh token is required'
         });
       }
 
-      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+      // Verify refresh token
+      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
+      
+      // Find user
       const user = await User.findById(decoded.userId);
-
       if (!user) {
-        return res.status(401).json({
+        return res.status(404).json({
           success: false,
           message: 'User not found'
         });
@@ -364,7 +414,7 @@ class AuthController {
       // Set new cookies
       this.setAuthCookies(res, newToken, newRefreshToken);
 
-      res.status(200).json({
+      res.json({
         success: true,
         message: 'Tokens refreshed successfully',
         data: {
@@ -372,21 +422,125 @@ class AuthController {
           refreshToken: newRefreshToken
         }
       });
+
     } catch (error) {
-      console.error('❌ Refresh token error:', error);
-      res.status(401).json({
+      if (error.name === 'JsonWebTokenError') {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid refresh token'
+        });
+      }
+
+      console.error('Refresh token error:', error);
+      res.status(500).json({
         success: false,
-        message: 'Token refresh failed'
+        message: 'Failed to refresh token',
+        error: error.message
       });
     }
   }
 
-  // Forgot password (existing method - can remain unchanged)
-  async forgotPassword(req, res, next) {
+  // Google OAuth Callback
+  async googleCallback(req, res) {
     try {
-      console.log('🔐 Forgot password request received');
+      console.log('🔄 Google OAuth callback initiated');
+      console.log('👤 User from Google:', req.user?.email);
       
-      // Check validation errors
+      if (!req.user) {
+        console.log('❌ No user found in Google callback');
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        return res.redirect(`${frontendUrl}/login?error=no_user`);
+      }
+
+      // Generate tokens
+      const token = this.generateToken(req.user._id, req.user.role);
+      const refreshToken = this.generateRefreshToken(req.user._id);
+      
+      // Set cookies
+      this.setAuthCookies(res, token, refreshToken);
+
+      // Determine redirect URL based on user role
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      let redirectPath = '/shop'; // Default redirect
+      
+      if (req.user.role === 'vendor') {
+        redirectPath = '/vendor-dashboard';
+      } else if (req.user.role === 'customer') {
+        redirectPath = '/shop';
+      }
+
+      const fullRedirectUrl = `${frontendUrl}${redirectPath}?auth=success&method=google`;
+
+      console.log('🔄 Redirecting to:', fullRedirectUrl);
+      res.redirect(fullRedirectUrl);
+      
+    } catch (error) {
+      console.error('❌ Google OAuth callback error:', error);
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      res.redirect(`${frontendUrl}/login?error=callback_failed`);
+    }
+  }
+
+  // Verify Email
+  async verifyEmail(req, res) {
+    try {
+      const { token } = req.params;
+
+      if (!token) {
+        return res.status(400).json({
+          success: false,
+          message: 'Verification token is required'
+        });
+      }
+
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      // Find and update user
+      const user = await User.findById(decoded.userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      if (user.emailVerified) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already verified'
+        });
+      }
+
+      user.emailVerified = true;
+      user.emailVerifiedAt = new Date();
+      await user.save();
+
+      res.json({
+        success: true,
+        message: 'Email verified successfully'
+      });
+
+    } catch (error) {
+      if (error.name === 'JsonWebTokenError') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or expired verification token'
+        });
+      }
+
+      console.error('Email verification error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Email verification failed',
+        error: error.message
+      });
+    }
+  }
+
+  // Forgot Password
+  async forgotPassword(req, res) {
+    try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({
@@ -396,29 +550,55 @@ class AuthController {
         });
       }
 
-      const { email } = req.body;
-      const result = await this.authService.forgotPassword(email);
+      const { email, userType = 'customer' } = req.body;
 
-      res.status(200).json({
+      let user;
+      switch (userType) {
+        case 'vendor':
+          user = await Vendor.findOne({ 'contactInfo.email': email });
+          break;
+        case 'admin':
+          user = await Admin.findOne({ email });
+          break;
+        default:
+          user = await User.findOne({ email });
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'No account found with this email address'
+        });
+      }
+
+      // Generate reset token
+      const resetToken = jwt.sign(
+        { userId: user._id, type: 'password-reset', userType },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+
+      // In a real implementation, send email with reset link
+      // For now, just return success (remove resetToken in production)
+      res.json({
         success: true,
-        message: result.message
+        message: 'Password reset link sent to your email',
+        ...(process.env.NODE_ENV === 'development' && { resetToken })
       });
+
     } catch (error) {
-      console.error('❌ Forgot password controller error:', error);
-      
-      res.status(400).json({
+      console.error('Forgot password error:', error);
+      res.status(500).json({
         success: false,
-        message: error.message || 'Password reset request failed'
+        message: 'Failed to process password reset request',
+        error: error.message
       });
     }
   }
 
-  // Reset password (existing method - can remain unchanged)
-  async resetPassword(req, res, next) {
+  // Reset Password
+  async resetPassword(req, res) {
     try {
-      console.log('🔐 Reset password request received');
-      
-      // Check validation errors
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({
@@ -431,76 +611,153 @@ class AuthController {
       const { token } = req.params;
       const { password } = req.body;
 
-      const result = await this.authService.resetPassword(token, password);
-
-      res.status(200).json({
-        success: true,
-        message: result.message
-      });
-    } catch (error) {
-      console.error('❌ Reset password controller error:', error);
-      
-      res.status(400).json({
-        success: false,
-        message: error.message || 'Password reset failed'
-      });
-    }
-  }
-   async googleCallback(req, res) {
-    try {
-      console.log('=== GOOGLE OAUTH CALLBACK DEBUG ===');
-      console.log('✅ Google OAuth callback successful:', req.user.email);
-      console.log('🔍 User role:', req.user.role);
-      console.log('🔍 Environment FRONTEND_URL:', process.env.FRONTEND_URL);
-      console.log('🔍 NODE_ENV:', process.env.NODE_ENV);
-      
-      // Generate tokens
-      const token = this.generateToken(req.user._id, req.user.role);
-      const refreshToken = this.generateRefreshToken(req.user._id);
-      
-      // Set cookies
-      this.setAuthCookies(res, token, refreshToken);
-      console.log('✅ Cookies set successfully');
-
-      // Determine frontend redirect URL based on user role
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      let redirectPath = '/shop'; // Default redirect
-      
-      if (req.user.role === 'vendor') {
-        redirectPath = '/vendor-dashboard';
-      } else if (req.user.role === 'customer') {
-        redirectPath = '/shop';
+      if (!token || !password) {
+        return res.status(400).json({
+          success: false,
+          message: 'Token and new password are required'
+        });
       }
 
-      // Create full frontend URL with success parameter
-      const fullRedirectUrl = `${frontendUrl}${redirectPath}?auth=success&method=google`;
+      // Verify reset token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      if (decoded.type !== 'password-reset') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid reset token'
+        });
+      }
 
-      console.log('🔄 Frontend URL:', frontendUrl);
-      console.log('🔄 Redirect path:', redirectPath);
-      console.log('🔄 Full redirect URL:', fullRedirectUrl);
-      console.log('🔄 About to redirect...');
-      
-      // Do the redirect
-      res.redirect(fullRedirectUrl);
-      
-      console.log('✅ Redirect completed');
-      
+      let user;
+      switch (decoded.userType) {
+        case 'vendor':
+          user = await Vendor.findById(decoded.userId);
+          break;
+        case 'admin':
+          user = await Admin.findById(decoded.userId);
+          break;
+        default:
+          user = await User.findById(decoded.userId);
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Hash new password
+      const saltRounds = 12;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+      // Update password
+      user.password = hashedPassword;
+      await user.save();
+
+      res.json({
+        success: true,
+        message: 'Password reset successfully'
+      });
+
     } catch (error) {
-      console.error('❌ Google OAuth callback error:', error);
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      const errorUrl = `${frontendUrl}/login?error=callback_failed`;
-      console.log('🔄 Redirecting to error URL:', errorUrl);
-      res.redirect(errorUrl);
+      if (error.name === 'JsonWebTokenError') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or expired reset token'
+        });
+      }
+
+      console.error('Reset password error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to reset password',
+        error: error.message
+      });
     }
   }
 
-// Also add this simple test endpoint to your AuthController to verify redirects work:
+  // Change Password (for authenticated users)
+  async changePassword(req, res) {
+    try {
+      const userId = req.user?.userId || req.user?.id;
+      const userRole = req.user?.role;
+      const { currentPassword, newPassword } = req.body;
+
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide current and new passwords'
+        });
+      }
+
+      let user;
+      switch (userRole) {
+        case 'vendor':
+          user = await Vendor.findById(userId).select('+password');
+          break;
+        case 'admin':
+          user = await Admin.findById(userId).select('+password');
+          break;
+        default:
+          user = await User.findById(userId).select('+password');
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Verify current password
+      const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+      if (!isCurrentPasswordValid) {
+        return res.status(400).json({
+          success: false,
+          message: 'Current password is incorrect'
+        });
+      }
+
+      // Hash new password
+      const saltRounds = 12;
+      const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
+
+      // Update password
+      user.password = hashedNewPassword;
+      await user.save();
+
+      res.json({
+        success: true,
+        message: 'Password changed successfully'
+      });
+
+    } catch (error) {
+      console.error('Change password error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to change password',
+        error: error.message
+      });
+    }
+  }
+
+  // Test redirect method
   async testRedirect(req, res) {
-    console.log('🧪 Testing redirect...');
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const testUrl = `${frontendUrl}/shop?test=redirect`;
-    console.log('🔄 Test redirect URL:', testUrl);
-    res.redirect(testUrl);
+    try {
+      console.log('🧪 Testing redirect...');
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const testUrl = `${frontendUrl}/shop?test=redirect`;
+      console.log('🔄 Test redirect URL:', testUrl);
+      res.redirect(testUrl);
+    } catch (error) {
+      console.error('Test redirect error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Test redirect failed',
+        error: error.message
+      });
+    }
   }
 }
 

@@ -1,37 +1,35 @@
-const recommendationService = require('../services/recommendationService');
+// src/controllers/marketplaceController.js
+const Vendor = require('../models/Vendor');
+const VendorService = require('../models/VendorService');
 
-// Get marketplace services with filtering and search
+// Get marketplace services with filtering
 exports.getMarketplaceServices = async (req, res) => {
   try {
     const {
+      page = 1,
+      limit = 12,
       category,
       location,
       minPrice,
       maxPrice,
       rating,
-      availability,
       eventType,
-      guestCount,
-      style,
-      page = 1,
-      limit = 12,
-      sortBy = 'rating',
-      sortOrder = 'desc',
-      search
+      search,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
     } = req.query;
 
-    // Build query
-    const query = {
-      isApproved: true,
-      isActive: true
-    };
-
-    // Join with vendor data
+    // Build aggregation pipeline
     const pipeline = [
-      // Match active and approved services
-      { $match: query },
+      // Match approved vendors with active services
+      {
+        $match: {
+          isApproved: true,
+          isActive: true
+        }
+      },
       
-      // Join with vendor data
+      // Lookup vendor information
       {
         $lookup: {
           from: 'vendors',
@@ -41,60 +39,55 @@ exports.getMarketplaceServices = async (req, res) => {
         }
       },
       
-      // Only include approved vendors
+      // Filter out vendors that aren't approved
       {
         $match: {
-          'vendor.registrationStatus': 'approved'
+          'vendor.registrationStatus': 'approved',
+          'vendor.isActive': true
         }
       },
       
-      // Add filters
+      // Add filtering conditions
       ...(category ? [{ $match: { 'serviceInfo.category': category } }] : []),
-      ...(location ? [{ 
-        $match: { 
-          $or: [
-            { 'serviceInfo.serviceArea.cities': { $regex: location, $options: 'i' } },
-            { 'vendor.businessInfo.businessAddress.city': { $regex: location, $options: 'i' } }
-          ]
-        } 
-      }] : []),
-      ...(minPrice || maxPrice ? [{
-        $match: {
-          'serviceInfo.budgetRange.min': { 
-            ...(minPrice ? { $gte: parseInt(minPrice) } : {}),
-            ...(maxPrice ? { $lte: parseInt(maxPrice) } : {})
-          }
-        }
-      }] : []),
-      ...(rating ? [{ $match: { 'metrics.rating': { $gte: parseFloat(rating) } } }] : []),
+      ...(location ? [{ $match: { 'vendor.contactInfo.city': { $regex: location, $options: 'i' } } }] : []),
       ...(eventType ? [{ $match: { 'serviceInfo.eventTypes': eventType } }] : []),
-      
-      // Search functionality
       ...(search ? [{
         $match: {
           $or: [
             { 'serviceInfo.title': { $regex: search, $options: 'i' } },
             { 'serviceInfo.description': { $regex: search, $options: 'i' } },
-            { 'vendor.businessInfo.businessName': { $regex: search, $options: 'i' } },
-            { 'serviceInfo.specializations': { $regex: search, $options: 'i' } }
+            { 'vendor.businessInfo.businessName': { $regex: search, $options: 'i' } }
           ]
         }
       }] : []),
       
-      // Add computed fields
+      // Price filtering
+      ...(minPrice || maxPrice ? [{
+        $match: {
+          'packages.price': {
+            ...(minPrice && { $gte: parseInt(minPrice) }),
+            ...(maxPrice && { $lte: parseInt(maxPrice) })
+          }
+        }
+      }] : []),
+      
+      // Add calculated fields
       {
         $addFields: {
-          averageRating: '$metrics.rating',
-          totalReviews: '$metrics.reviewCount',
-          completedEvents: '$metrics.completedEvents',
-          responseTime: '$metrics.responseTimeHours'
+          averageRating: { $ifNull: ['$metrics.averageRating', 0] },
+          totalReviews: { $ifNull: ['$metrics.totalReviews', 0] },
+          completedEvents: { $ifNull: ['$metrics.completedEvents', 0] },
+          responseTime: { $ifNull: ['$metrics.averageResponseTime', '24 hours'] }
         }
       },
       
-      // Sort
+      // Rating filtering
+      ...(rating ? [{ $match: { averageRating: { $gte: parseFloat(rating) } } }] : []),
+      
+      // Sorting
       {
         $sort: {
-          [sortBy]: sortOrder === 'desc' ? -1 : 1
+          [sortBy === 'rating' ? 'averageRating' : sortBy]: sortOrder === 'desc' ? -1 : 1
         }
       },
       
@@ -184,7 +177,7 @@ exports.getVendorDetails = async (req, res) => {
       isActive: true 
     }).lean();
 
-    // Get vendor reviews (you'll need to create this)
+    // Get vendor reviews (you'll need to create this model)
     // const reviews = await VendorReview.find({ vendorId, isVisible: true })
     //   .populate('customerId', 'name')
     //   .sort({ createdAt: -1 })
@@ -193,10 +186,11 @@ exports.getVendorDetails = async (req, res) => {
     // Calculate vendor statistics
     const stats = {
       totalServices: services.length,
-      averageRating: services.reduce((sum, s) => sum + s.metrics.rating, 0) / services.length || 0,
-      totalReviews: services.reduce((sum, s) => sum + s.metrics.reviewCount, 0),
-      completedEvents: services.reduce((sum, s) => sum + s.metrics.completedEvents, 0),
-      responseTime: Math.min(...services.map(s => s.metrics.responseTimeHours)) || 24
+      averageRating: 4.5, // Placeholder - calculate from reviews
+      totalReviews: 0, // Placeholder
+      completedEvents: 0, // Placeholder
+      responseTime: '2-4 hours', // Placeholder
+      joinedDate: vendor.createdAt
     };
 
     res.json({
@@ -205,7 +199,7 @@ exports.getVendorDetails = async (req, res) => {
         vendor,
         services,
         stats,
-        // reviews
+        // reviews: reviews || []
       }
     });
 
@@ -219,104 +213,89 @@ exports.getVendorDetails = async (req, res) => {
   }
 };
 
-// Search vendors with recommendations
+// Search vendors
 exports.searchVendors = async (req, res) => {
   try {
-    const {
-      eventType,
-      guestCount,
-      budget,
+    const { 
+      q: query,
       location,
-      date,
-      style,
-      serviceCategories
+      category,
+      limit = 10
     } = req.query;
 
-    // If enough parameters for recommendation, use recommendation service
-    if (eventType && guestCount && budget && location) {
-      const eventRequirements = {
-        eventType,
-        guestCount: parseInt(guestCount),
-        budget: parseInt(budget),
-        location,
-        date: date ? new Date(date) : null,
-        style,
-        serviceCategories: serviceCategories ? serviceCategories.split(',') : []
-      };
-
-      const recommendations = await recommendationService.getVendorRecommendations(eventRequirements);
-      
-      return res.json({
-        success: true,
-        data: {
-          recommendations: recommendations.recommendations,
-          searchType: 'recommendation',
-          eventRequirements
-        }
+    if (!query || query.trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Search query must be at least 2 characters long'
       });
     }
 
-    // Otherwise, fall back to regular search
-    return this.getMarketplaceServices(req, res);
+    // Build search conditions
+    const searchConditions = {
+      registrationStatus: 'approved',
+      isActive: true,
+      $or: [
+        { 'businessInfo.businessName': { $regex: query, $options: 'i' } },
+        { 'serviceInfo.services': { $regex: query, $options: 'i' } },
+        { 'contactInfo.city': { $regex: query, $options: 'i' } }
+      ]
+    };
+
+    // Add location filter
+    if (location) {
+      searchConditions['contactInfo.city'] = { $regex: location, $options: 'i' };
+    }
+
+    // Add category filter
+    if (category) {
+      searchConditions['serviceInfo.services'] = { $regex: category, $options: 'i' };
+    }
+
+    const vendors = await Vendor.find(searchConditions)
+      .select('businessInfo contactInfo serviceInfo createdAt')
+      .limit(parseInt(limit))
+      .lean();
+
+    // Get services for these vendors
+    const vendorIds = vendors.map(v => v._id);
+    const services = await VendorService.find({
+      vendorId: { $in: vendorIds },
+      isApproved: true,
+      isActive: true
+    }).select('vendorId serviceInfo packages media metrics').lean();
+
+    // Group services by vendor
+    const vendorServices = {};
+    services.forEach(service => {
+      if (!vendorServices[service.vendorId]) {
+        vendorServices[service.vendorId] = [];
+      }
+      vendorServices[service.vendorId].push(service);
+    });
+
+    // Combine vendor data with their services
+    const results = vendors.map(vendor => ({
+      ...vendor,
+      services: vendorServices[vendor._id] || [],
+      serviceCount: vendorServices[vendor._id]?.length || 0
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        vendors: results,
+        total: results.length,
+        query,
+        filters: { location, category }
+      }
+    });
 
   } catch (error) {
     console.error('Search vendors error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to search vendors',
+      message: 'Search failed',
       error: error.message
     });
   }
-};
-
-// Get marketplace statistics
-exports.getMarketplaceStats = async (req, res) => {
-  try {
-    const stats = await Promise.all([
-      Vendor.countDocuments({ registrationStatus: 'approved' }),
-      VendorService.countDocuments({ isApproved: true, isActive: true }),
-      VendorService.aggregate([
-        { $match: { isApproved: true, isActive: true } },
-        { $group: { _id: null, totalEvents: { $sum: '$metrics.completedEvents' } } }
-      ]),
-      VendorService.aggregate([
-        { $match: { isApproved: true, isActive: true } },
-        { $group: { _id: '$serviceInfo.category', count: { $sum: 1 } } }
-      ])
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        totalVendors: stats[0],
-        totalServices: stats[1],
-        totalEvents: stats[2][0]?.totalEvents || 0,
-        categoriesBreakdown: stats[3]
-      }
-    });
-
-  } catch (error) {
-    console.error('Get marketplace stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch marketplace statistics',
-      error: error.message
-    });
-  }
-};
-
-module.exports = {
-  // Admin exports
-  getAllVendorApplications: exports.getAllVendorApplications,
-  getVendorApplicationById: exports.getVendorApplicationById,
-  approveVendorApplication: exports.approveVendorApplication,
-  rejectVendorApplication: exports.rejectVendorApplication,
-  updateDocumentVerification: exports.updateDocumentVerification,
-  createRecommendationProfile: exports.createRecommendationProfile,
-  
-  // Marketplace exports
-  getMarketplaceServices: exports.getMarketplaceServices,
-  getVendorDetails: exports.getVendorDetails,
-  searchVendors: exports.searchVendors,
-  getMarketplaceStats: exports.getMarketplaceStats
 };
