@@ -1,252 +1,524 @@
-// const mongoose = require('mongoose');
+// evea-backend/src/services/recommendationService.js
+const RecommendationProfile = require('../models/RecommendationProfile');
+const VendorService = require('../models/VendorService');
+const Vendor = require('../models/Vendor');
+const logger = require('../config/logger');
 
-// const recommendationProfileSchema = new mongoose.Schema({
-//   vendorId: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: 'Vendor',
-//     required: true,
-//     unique: true
-//   },
+class RecommendationService {
   
-//   // Event Type Expertise & Preferences
-//   eventExpertise: {
-//     primaryEventTypes: [{
-//       type: String,
-//       enum: ['wedding', 'birthday', 'corporate', 'anniversary', 'baby_shower', 'engagement', 
-//              'reception', 'sangeet', 'mehendi', 'cocktail', 'conference', 'seminar', 
-//              'product_launch', 'exhibition', 'religious', 'graduation', 'festival']
-//     }],
-    
-//     // Specialized sub-categories
-//     weddingSpecialties: [{
-//       type: String,
-//       enum: ['traditional_indian', 'destination', 'intimate', 'grand_celebration', 
-//              'multi_day', 'inter_cultural', 'themed', 'outdoor', 'palace_wedding']
-//     }],
-    
-//     corporateSpecialties: [{
-//       type: String,
-//       enum: ['conferences', 'team_building', 'product_launches', 'award_ceremonies', 
-//              'board_meetings', 'company_parties', 'training_sessions', 'trade_shows']
-//     }],
-    
-//     eventSizeExpertise: {
-//       intimate: { min: 1, max: 50, isExpert: Boolean },      // 1-50 guests
-//       medium: { min: 51, max: 200, isExpert: Boolean },       // 51-200 guests
-//       large: { min: 201, max: 500, isExpert: Boolean },       // 201-500 guests
-//       massive: { min: 501, max: 2000, isExpert: Boolean }     // 500+ guests
-//     }
-//   },
+  // Get vendor recommendations based on event requirements
+  async getVendorRecommendations(eventRequirements) {
+    try {
+      const {
+        eventType,
+        guestCount,
+        budget,
+        location,
+        date,
+        style,
+        serviceCategories = [],
+        specialRequirements = {}
+      } = eventRequirements;
 
-//   // Budget & Pricing Expertise
-//   budgetExpertise: {
-//     economySegment: { min: 5000, max: 50000, isExpert: Boolean },      // Budget-friendly
-//     midSegment: { min: 50000, max: 200000, isExpert: Boolean },        // Mid-range
-//     premiumSegment: { min: 200000, max: 500000, isExpert: Boolean },   // Premium
-//     luxurySegment: { min: 500000, max: 2000000, isExpert: Boolean }    // Luxury
-//   },
+      logger.info('[RECOMMENDATION] Getting vendor recommendations', {
+        eventType,
+        guestCount,
+        budget,
+        location
+      });
 
-//   // Geographic & Cultural Expertise
-//   geographicExpertise: {
-//     serviceAreas: [{
-//       city: String,
-//       state: String,
-//       radiusKm: Number,
-//       isHomeBased: Boolean,
-//       travelCharges: Number
-//     }],
-    
-//     culturalExpertise: [{
-//       type: String,
-//       enum: ['north_indian', 'south_indian', 'bengali', 'punjabi', 'gujarati', 
-//              'maharashtrian', 'rajasthani', 'western', 'international', 'fusion']
-//     }],
-    
-//     languagesSpoken: [String],
-    
-//     internationalExperience: {
-//       hasExperience: Boolean,
-//       countries: [String],
-//       destinationWeddingExpert: Boolean
-//     }
-//   },
+      // Build aggregation pipeline for complex matching
+      const pipeline = [
+        // Match basic criteria
+        {
+          $match: {
+            'eventExpertise.primaryEventTypes': eventType,
+            'geographicExpertise.serviceAreas.city': { $regex: location, $options: 'i' }
+          }
+        },
+        
+        // Join with vendor services
+        {
+          $lookup: {
+            from: 'vendorservices',
+            localField: 'vendorId',
+            foreignField: 'vendorId',
+            as: 'services'
+          }
+        },
+        
+        // Join with vendor details
+        {
+          $lookup: {
+            from: 'vendors',
+            localField: 'vendorId',
+            foreignField: '_id',
+            as: 'vendor'
+          }
+        },
+        
+        // Filter out vendors without services or vendor details
+        {
+          $match: {
+            'services.0': { $exists: true },
+            'vendor.0': { $exists: true }
+          }
+        },
+        
+        // Add computed scores
+        {
+          $addFields: {
+            vendorInfo: { $arrayElemAt: ['$vendor', 0] },
+            avgRating: { $avg: '$services.metrics.rating' },
+            budgetScore: this.calculateBudgetScoreAggregation(budget),
+            guestCountScore: this.calculateGuestCountScoreAggregation(guestCount),
+            experienceScore: '$qualityIndicators.yearsOfExperience',
+            responseScore: {
+              $cond: {
+                if: { $lte: ['$qualityIndicators.responseTime', 4] },
+                then: 10,
+                else: { $subtract: [10, { $divide: ['$qualityIndicators.responseTime', 2] }] }
+              }
+            }
+          }
+        },
+        
+        // Calculate final recommendation score
+        {
+          $addFields: {
+            totalScore: {
+              $add: [
+                { $multiply: ['$budgetScore', '$algorithmWeights.priceWeight'] },
+                { $multiply: [{ $ifNull: ['$avgRating', 4] }, '$algorithmWeights.ratingWeight'] },
+                { $multiply: ['$experienceScore', '$algorithmWeights.experienceWeight'] },
+                { $multiply: ['$responseScore', '$algorithmWeights.availabilityWeight'] }
+              ]
+            }
+          }
+        },
+        
+        // Sort by recommendation score
+        { $sort: { totalScore: -1 } },
+        
+        // Limit results
+        { $limit: 20 },
+        
+        // Project final result
+        {
+          $project: {
+            vendorId: 1,
+            vendor: '$vendorInfo',
+            services: 1,
+            totalScore: 1,
+            budgetScore: 1,
+            guestCountScore: 1,
+            avgRating: 1,
+            experienceScore: 1,
+            responseScore: 1,
+            qualityIndicators: 1,
+            eventExpertise: 1,
+            geographicExpertise: 1
+          }
+        }
+      ];
 
-//   // Timing & Seasonal Expertise
-//   temporalExpertise: {
-//     preferredSeasons: [{
-//       type: String,
-//       enum: ['spring', 'summer', 'monsoon', 'autumn', 'winter']
-//     }],
-    
-//     timePreferences: {
-//       morning: { start: String, end: String, isPreferred: Boolean },
-//       afternoon: { start: String, end: String, isPreferred: Boolean },
-//       evening: { start: String, end: String, isPreferred: Boolean },
-//       night: { start: String, end: String, isPreferred: Boolean }
-//     },
-    
-//     advanceBookingPreference: {
-//       min: Number, // minimum days
-//       max: Number, // maximum days
-//       optimal: Number // optimal booking window
-//     },
-    
-//     peakSeasonExpertise: [{
-//       type: String,
-//       enum: ['wedding_season', 'festive_season', 'summer_holidays', 'corporate_year_end']
-//     }]
-//   },
+      const recommendations = await RecommendationProfile.aggregate(pipeline);
+      
+      // Add match reasons for each recommendation
+      const enhancedRecommendations = recommendations.map(rec => ({
+        ...rec,
+        matchReasons: this.generateMatchReasons(rec, eventRequirements),
+        compatibilityPercentage: Math.round((rec.totalScore / 10) * 100)
+      }));
 
-//   // Service Style & Aesthetic Preferences
-//   styleExpertise: {
-//     aestheticStyles: [{
-//       type: String,
-//       enum: ['traditional', 'modern', 'vintage', 'rustic', 'minimalist', 'bohemian', 
-//              'glamorous', 'royal', 'contemporary', 'ethnic', 'fusion', 'themed']
-//     }],
-    
-//     colorSchemeExpertise: [{
-//       type: String,
-//       enum: ['pastels', 'vibrant', 'monochrome', 'gold_red', 'pink_gold', 'blue_silver', 
-//              'green_gold', 'purple_silver', 'multicolor', 'neutral_tones']
-//     }],
-    
-//     themeExpertise: [String], // Custom themes like "Bollywood", "Garden Party", etc.
-//   },
+      logger.info('[RECOMMENDATION] Generated recommendations', {
+        count: enhancedRecommendations.length,
+        avgScore: enhancedRecommendations.reduce((sum, r) => sum + r.totalScore, 0) / enhancedRecommendations.length
+      });
 
-//   // Client Demographics & Preferences
-//   clientDemographics: {
-//     ageGroupExpertise: [{
-//       type: String,
-//       enum: ['gen_z', 'millennials', 'gen_x', 'baby_boomers', 'mixed_age']
-//     }],
-    
-//     clientPersonalities: [{
-//       type: String,
-//       enum: ['detail_oriented', 'laid_back', 'budget_conscious', 'luxury_seeking', 
-//              'traditional', 'modern', 'experimental', 'minimalist']
-//     }],
-    
-//     specialRequirements: {
-//       accessibilityExpert: Boolean,
-//       petFriendlyEvents: Boolean,
-//       ecoFriendlyEvents: Boolean,
-//       vegan_vegetarianExpert: Boolean,
-//       religiousRequirements: [String]
-//     }
-//   },
+      return {
+        recommendations: enhancedRecommendations,
+        eventRequirements,
+        totalFound: enhancedRecommendations.length
+      };
 
-//   // Collaboration & Vendor Network
-//   collaborationProfile: {
-//     preferredVendorTypes: [String], // Other vendor categories they work well with
-//     hasEstablishedNetwork: Boolean,
-//     networkStrength: { type: Number, min: 1, max: 10 },
-    
-//     workingStyle: {
-//       type: String,
-//       enum: ['lead_coordinator', 'collaborative', 'supportive', 'independent']
-//     },
-    
-//     communicationStyle: {
-//       type: String,
-//       enum: ['highly_responsive', 'scheduled_updates', 'minimal_contact', 'client_preference']
-//     }
-//   },
+    } catch (error) {
+      logger.logError(error, { action: 'get_vendor_recommendations', eventRequirements });
+      throw error;
+    }
+  }
 
-//   // Performance & Quality Indicators
-//   qualityIndicators: {
-//     responseTime: Number, // Average hours to respond
-//     completionRate: Number, // Percentage of completed projects
-//     repeatClientRate: Number, // Percentage of repeat clients
-//     referralRate: Number, // Percentage from referrals
-    
-//     certifications: [String],
-//     awards: [String],
-//     yearsOfExperience: Number,
-    
-//     qualityMarkers: {
-//       punctuality: { type: Number, min: 1, max: 10 },
-//       creativity: { type: Number, min: 1, max: 10 },
-//       problemSolving: { type: Number, min: 1, max: 10 },
-//       customerService: { type: Number, min: 1, max: 10 }
-//     }
-//   },
+  // Calculate budget compatibility score for aggregation
+  calculateBudgetScoreAggregation(eventBudget) {
+    return {
+      $cond: {
+        if: {
+          $and: [
+            { $gte: [eventBudget, '$budgetExpertise.midSegment.min'] },
+            { $lte: [eventBudget, '$budgetExpertise.midSegment.max'] },
+            { $eq: ['$budgetExpertise.midSegment.isExpert', true] }
+          ]
+        },
+        then: 10,
+        else: {
+          $cond: {
+            if: {
+              $or: [
+                {
+                  $and: [
+                    { $gte: [eventBudget, '$budgetExpertise.economySegment.min'] },
+                    { $lte: [eventBudget, '$budgetExpertise.economySegment.max'] },
+                    { $eq: ['$budgetExpertise.economySegment.isExpert', true] }
+                  ]
+                },
+                {
+                  $and: [
+                    { $gte: [eventBudget, '$budgetExpertise.premiumSegment.min'] },
+                    { $lte: [eventBudget, '$budgetExpertise.premiumSegment.max'] },
+                    { $eq: ['$budgetExpertise.premiumSegment.isExpert', true] }
+                  ]
+                },
+                {
+                  $and: [
+                    { $gte: [eventBudget, '$budgetExpertise.luxurySegment.min'] },
+                    { $lte: [eventBudget, '$budgetExpertise.luxurySegment.max'] },
+                    { $eq: ['$budgetExpertise.luxurySegment.isExpert', true] }
+                  ]
+                }
+              ]
+            },
+            then: 8,
+            else: 5
+          }
+        }
+      }
+    };
+  }
 
-//   // Innovation & Technology Adoption
-//   technologyProfile: {
-//     digitalPresence: {
-//       type: String,
-//       enum: ['basic', 'moderate', 'advanced', 'cutting_edge']
-//     },
-    
-//     offerVirtualServices: Boolean,
-//     usesEventTech: [String], // AR/VR, live streaming, etc.
-//     onlinePaymentOptions: [String],
-    
-//     socialMediaStrength: {
-//       platforms: [String],
-//       followerCount: Number,
-//       engagementRate: Number
-//     }
-//   },
+  // Calculate guest count compatibility score for aggregation
+  calculateGuestCountScoreAggregation(guestCount) {
+    return {
+      $cond: {
+        if: {
+          $or: [
+            {
+              $and: [
+                { $gte: [guestCount, '$eventExpertise.eventSizeExpertise.intimate.min'] },
+                { $lte: [guestCount, '$eventExpertise.eventSizeExpertise.intimate.max'] },
+                { $eq: ['$eventExpertise.eventSizeExpertise.intimate.isExpert', true] }
+              ]
+            },
+            {
+              $and: [
+                { $gte: [guestCount, '$eventExpertise.eventSizeExpertise.medium.min'] },
+                { $lte: [guestCount, '$eventExpertise.eventSizeExpertise.medium.max'] },
+                { $eq: ['$eventExpertise.eventSizeExpertise.medium.isExpert', true] }
+              ]
+            },
+            {
+              $and: [
+                { $gte: [guestCount, '$eventExpertise.eventSizeExpertise.large.min'] },
+                { $lte: [guestCount, '$eventExpertise.eventSizeExpertise.large.max'] },
+                { $eq: ['$eventExpertise.eventSizeExpertise.large.isExpert', true] }
+              ]
+            },
+            {
+              $and: [
+                { $gte: [guestCount, '$eventExpertise.eventSizeExpertise.massive.min'] },
+                { $lte: [guestCount, '$eventExpertise.eventSizeExpertise.massive.max'] },
+                { $eq: ['$eventExpertise.eventSizeExpertise.massive.isExpert', true] }
+              ]
+            }
+          ]
+        },
+        then: 10,
+        else: 6
+      }
+    };
+  }
 
-//   // Algorithm Weights (for fine-tuning recommendations)
-//   algorithmWeights: {
-//     priceWeight: { type: Number, default: 0.25 },
-//     locationWeight: { type: Number, default: 0.20 },
-//     ratingWeight: { type: Number, default: 0.20 },
-//     availabilityWeight: { type: Number, default: 0.15 },
-//     experienceWeight: { type: Number, default: 0.10 },
-//     styleMatchWeight: { type: Number, default: 0.10 }
-//   },
-
-//   // Dynamic Learning Data
-//   learningData: {
-//     successfulMatches: [{
-//       eventId: mongoose.Schema.Types.ObjectId,
-//       clientSatisfaction: Number,
-//       matchFactors: [String] // What made this match successful
-//     }],
+  // Generate human-readable match reasons
+  generateMatchReasons(recommendation, eventRequirements) {
+    const reasons = [];
     
-//     unsuccessfulMatches: [{
-//       eventId: mongoose.Schema.Types.ObjectId,
-//       reasonForFailure: String,
-//       learningPoints: [String]
-//     }],
+    if (recommendation.budgetScore >= 8) {
+      reasons.push('Perfect budget match for your event');
+    }
     
-//     clientFeedbackPatterns: [{
-//       feedbackType: String,
-//       frequency: Number,
-//       improvementAreas: [String]
-//     }]
-//   },
-
-//   // Seasonal & Market Adaptability
-//   marketAdaptability: {
-//     trendAdoption: {
-//       type: String,
-//       enum: ['early_adopter', 'fast_follower', 'mainstream', 'traditional']
-//     },
+    if (recommendation.guestCountScore >= 8) {
+      reasons.push(`Expert in ${eventRequirements.guestCount}-guest events`);
+    }
     
-//     priceFlexibility: {
-//       type: String,
-//       enum: ['fixed', 'seasonal_variation', 'demand_based', 'negotiable']
-//     },
+    if (recommendation.avgRating >= 4.5) {
+      reasons.push('Highly rated by previous clients');
+    }
     
-//     serviceEvolution: [{
-//       quarter: String,
-//       newServices: [String],
-//       retiredServices: [String]
-//     }]
-//   }
-// }, {
-//   timestamps: true
-// });
+    if (recommendation.qualityIndicators?.yearsOfExperience >= 5) {
+      reasons.push(`${recommendation.qualityIndicators.yearsOfExperience}+ years of experience`);
+    }
 
-// // Indexes for efficient querying
-// recommendationProfileSchema.index({ 'eventExpertise.primaryEventTypes': 1 });
-// recommendationProfileSchema.index({ 'geographicExpertise.serviceAreas.city': 1 });
-// recommendationProfileSchema.index({ 'budgetExpertise.midSegment.min': 1, 'budgetExpertise.midSegment.max': 1 });
-// recommendationProfileSchema.index({ 'qualityIndicators.responseTime': 1 });
+    if (recommendation.responseScore >= 8) {
+      reasons.push('Quick response time');
+    }
+    
+    return reasons;
+  }
 
-// module.exports = mongoose.model('RecommendationProfile', recommendationProfileSchema);
+  // Get vendor categories for filtering
+  async getAvailableCategories(location) {
+    try {
+      const categories = await RecommendationProfile.aggregate([
+        {
+          $match: {
+            'geographicExpertise.serviceAreas.city': { $regex: location, $options: 'i' }
+          }
+        },
+        {
+          $lookup: {
+            from: 'vendorservices',
+            localField: 'vendorId',
+            foreignField: 'vendorId',
+            as: 'services'
+          }
+        },
+        {
+          $unwind: '$services'
+        },
+        {
+          $group: {
+            _id: '$services.category',
+            count: { $sum: 1 },
+            avgPrice: { $avg: '$services.pricing.basePrice' }
+          }
+        },
+        {
+          $sort: { count: -1 }
+        }
+      ]);
+
+      return categories;
+    } catch (error) {
+      logger.logError(error, { action: 'get_available_categories', location });
+      throw error;
+    }
+  }
+
+  // Update recommendation profile based on booking success/failure
+  async updateLearningData(vendorId, bookingData) {
+    try {
+      const { eventId, wasSuccessful, clientFeedback, satisfactionScore } = bookingData;
+      
+      const updateData = wasSuccessful ? {
+        $push: {
+          'learningData.successfulMatches': {
+            eventId,
+            clientSatisfaction: satisfactionScore,
+            matchFactors: this.extractMatchFactors(clientFeedback)
+          }
+        }
+      } : {
+        $push: {
+          'learningData.unsuccessfulMatches': {
+            eventId,
+            reasonForFailure: clientFeedback.reason,
+            learningPoints: this.extractLearningPoints(clientFeedback)
+          }
+        }
+      };
+
+      await RecommendationProfile.findOneAndUpdate(
+        { vendorId },
+        updateData
+      );
+
+      return { success: true };
+    } catch (error) {
+      logger.logError(error, { action: 'update_learning_data', vendorId });
+      throw error;
+    }
+  }
+
+  // Helper method to extract match factors from feedback
+  extractMatchFactors(feedback) {
+    const factors = [];
+    
+    if (feedback.pricing && feedback.pricing >= 4) factors.push('competitive_pricing');
+    if (feedback.communication && feedback.communication >= 4) factors.push('excellent_communication');
+    if (feedback.quality && feedback.quality >= 4) factors.push('high_quality_service');
+    if (feedback.punctuality && feedback.punctuality >= 4) factors.push('punctual_delivery');
+    
+    return factors;
+  }
+
+  // Helper method to extract learning points from failed bookings
+  extractLearningPoints(feedback) {
+    const points = [];
+    
+    if (feedback.pricing && feedback.pricing < 3) points.push('pricing_too_high');
+    if (feedback.communication && feedback.communication < 3) points.push('poor_communication');
+    if (feedback.availability && feedback.availability < 3) points.push('availability_issues');
+    
+    return points;
+  }
+
+  // Create or update recommendation profile for a vendor
+  async createRecommendationProfile(vendorId, profileData) {
+    try {
+      const existingProfile = await RecommendationProfile.findOne({ vendorId });
+      
+      if (existingProfile) {
+        // Update existing profile
+        Object.assign(existingProfile, profileData);
+        await existingProfile.save();
+        logger.info('[RECOMMENDATION] Profile updated', { vendorId });
+        return existingProfile;
+      } else {
+        // Create new profile
+        const newProfile = new RecommendationProfile({
+          vendorId,
+          ...profileData
+        });
+        await newProfile.save();
+        logger.info('[RECOMMENDATION] Profile created', { vendorId });
+        return newProfile;
+      }
+    } catch (error) {
+      logger.logError(error, { action: 'create_recommendation_profile', vendorId });
+      throw error;
+    }
+  }
+
+  // Get recommendation analytics for admin dashboard
+  async getRecommendationAnalytics() {
+    try {
+      const analytics = await RecommendationProfile.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalProfiles: { $sum: 1 },
+            avgExperience: { $avg: '$qualityIndicators.yearsOfExperience' },
+            avgResponseTime: { $avg: '$qualityIndicators.responseTime' },
+            topEventTypes: { $push: '$eventExpertise.primaryEventTypes' }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            totalProfiles: 1,
+            avgExperience: { $round: ['$avgExperience', 1] },
+            avgResponseTime: { $round: ['$avgResponseTime', 1] },
+            topEventTypes: {
+              $reduce: {
+                input: '$topEventTypes',
+                initialValue: [],
+                in: { $concatArrays: ['$$value', '$$this'] }
+              }
+            }
+          }
+        }
+      ]);
+
+      return analytics[0] || {
+        totalProfiles: 0,
+        avgExperience: 0,
+        avgResponseTime: 24,
+        topEventTypes: []
+      };
+    } catch (error) {
+      logger.logError(error, { action: 'get_recommendation_analytics' });
+      throw error;
+    }
+  }
+}
+
+// Recommendation System Questions for Vendor Registration
+const RECOMMENDATION_QUESTIONS = {
+  eventExpertise: [
+    {
+      id: 'primary_event_types',
+      question: 'What types of events do you specialize in?',
+      type: 'multiselect',
+      options: ['wedding', 'birthday', 'corporate', 'anniversary', 'baby_shower', 'engagement', 
+               'reception', 'sangeet', 'mehendi', 'cocktail', 'conference', 'seminar']
+    },
+    {
+      id: 'event_size_expertise',
+      question: 'What event sizes are you most experienced with?',
+      type: 'checkbox_grid',
+      options: [
+        { id: 'intimate', label: '1-50 guests', range: [1, 50] },
+        { id: 'medium', label: '51-200 guests', range: [51, 200] },
+        { id: 'large', label: '201-500 guests', range: [201, 500] },
+        { id: 'massive', label: '500+ guests', range: [501, 2000] }
+      ]
+    }
+  ],
+  
+  budgetExpertise: [
+    {
+      id: 'budget_segments',
+      question: 'Which budget ranges do you work with most effectively?',
+      type: 'checkbox_grid',
+      options: [
+        { id: 'economy', label: '₹5,000 - ₹50,000', range: [5000, 50000] },
+        { id: 'mid', label: '₹50,000 - ₹2,00,000', range: [50000, 200000] },
+        { id: 'premium', label: '₹2,00,000 - ₹5,00,000', range: [200000, 500000] },
+        { id: 'luxury', label: '₹5,00,000+', range: [500000, 2000000] }
+      ]
+    }
+  ],
+  
+  geographicExpertise: [
+    {
+      id: 'service_areas',
+      question: 'What areas do you serve?',
+      type: 'location_picker',
+      allowMultiple: true
+    },
+    {
+      id: 'cultural_expertise',
+      question: 'What cultural styles do you specialize in?',
+      type: 'multiselect',
+      options: ['north_indian', 'south_indian', 'bengali', 'punjabi', 'gujarati', 
+               'maharashtrian', 'rajasthani', 'western', 'international', 'fusion']
+    }
+  ],
+
+  styleExpertise: [
+    {
+      id: 'aesthetic_styles',
+      question: 'What aesthetic styles do you excel at?',
+      type: 'multiselect',
+      options: ['traditional', 'modern', 'vintage', 'rustic', 'minimalist', 'bohemian', 
+               'glamorous', 'royal', 'contemporary', 'ethnic', 'fusion', 'themed']
+    }
+  ],
+
+  qualityIndicators: [
+    {
+      id: 'response_time',
+      question: 'What is your typical response time to client inquiries?',
+      type: 'select',
+      options: [
+        { value: 1, label: 'Within 1 hour' },
+        { value: 4, label: 'Within 4 hours' },
+        { value: 12, label: 'Within 12 hours' },
+        { value: 24, label: 'Within 24 hours' },
+        { value: 48, label: 'Within 48 hours' }
+      ]
+    },
+    {
+      id: 'years_of_experience',
+      question: 'How many years of experience do you have?',
+      type: 'number',
+      min: 0,
+      max: 50
+    }
+  ]
+};
+
+// Export both the service instance and questions
+module.exports = {
+  recommendationService: new RecommendationService(),
+  RECOMMENDATION_QUESTIONS
+};
