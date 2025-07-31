@@ -3,18 +3,22 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   LayoutDashboard, Package, RefreshCw, Bell, User, Settings,
   TrendingUp, ShoppingBag, IndianRupee, Star, MessageSquare, 
-  LogOut, Menu, X, Home, Eye, Clock, CheckCircle
+  LogOut, Menu, X, Home, Eye, Clock, CheckCircle, Box
 } from 'lucide-react';
 
 // Import services
 import { getVendorProfile, getDashboardStats, logoutVendor } from '../../services/vendorAPI';
 import { toast } from 'react-toastify';
 
-// Import dashboard components (to be created)
+// Import existing pages from correct paths
+import OrdersPage from '../OrdersPage/OrdersPage';
+import RefundRequestsPage from '../RefundRequestsPage/RefundRequestsPage';
+import InventoryPage from '../InventoryPage/InventoryPage';
+import NotificationsPage from '../NotificationsPage/NotificationsPage';
+import BusinessProfilePage from '../BusinessProfilePage/BusinessProfilePage';
+
+// Import dashboard-specific components
 import DashboardOverview from '../../components/VendorDashboard/DashboardOverview';
-import OrdersManagement from '../../components/VendorDashboard/OrdersManagement';
-import ServicesManagement from '../../components/VendorDashboard/ServicesManagement';
-import ProfileManagement from '../../components/VendorDashboard/ProfileManagement';
 import RegistrationStatus from '../../components/VendorDashboard/RegistrationStatus';
 
 import './VendorDashboard.css';
@@ -29,45 +33,57 @@ const VendorDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [notifications] = useState(3);
 
-  // Navigation items
+  // Navigation items with correct component mappings
   const navigationItems = [
     {
       id: 'dashboard',
       name: 'Dashboard Overview',
       icon: <LayoutDashboard size={20} />,
-      component: DashboardOverview
+      component: DashboardOverview,
+      badge: null
     },
     {
       id: 'status',
       name: 'Registration Status',
       icon: <Clock size={20} />,
       component: RegistrationStatus,
-      badge: vendor?.registrationStatus === 'pending_review' ? 'pending' : null
+      badge: vendor?.registrationStatus === 'pending_review' ? 'pending' : null,
+      showOnlyIf: () => vendor?.registrationStatus !== 'approved'
     },
     {
       id: 'orders',
       name: 'Orders',
       icon: <ShoppingBag size={20} />,
-      badge: 12,
-      component: OrdersManagement
+      component: OrdersPage,
+      badge: 12
     },
     {
-      id: 'services',
-      name: 'Services',
-      icon: <Package size={20} />,
-      component: ServicesManagement
+      id: 'refunds',
+      name: 'Refund Requests',
+      icon: <RefreshCw size={20} />,
+      component: RefundRequestsPage,
+      badge: 3
     },
     {
-      id: 'profile',
-      name: 'Business Profile',
-      icon: <User size={20} />,
-      component: ProfileManagement
+      id: 'inventory',
+      name: 'Inventory',
+      icon: <Box size={20} />,
+      component: InventoryPage,
+      badge: null
     },
     {
       id: 'notifications',
       name: 'Notifications',
       icon: <Bell size={20} />,
+      component: NotificationsPage,
       badge: notifications
+    },
+    {
+      id: 'profile',
+      name: 'Business Profile',
+      icon: <User size={20} />,
+      component: BusinessProfilePage,
+      badge: null
     }
   ];
 
@@ -88,7 +104,7 @@ const VendorDashboard = () => {
     if (tab && navigationItems.find(item => item.id === tab)) {
       setActiveTab(tab);
     }
-  }, [searchParams]);
+  }, [searchParams, navigationItems]);
 
   const loadVendorData = async () => {
     try {
@@ -162,7 +178,12 @@ const VendorDashboard = () => {
   const renderCurrentTab = () => {
     const currentItem = navigationItems.find(item => item.id === activeTab);
     if (!currentItem?.component) {
-      return <div>Component not found</div>;
+      return (
+        <div className="tab-not-found">
+          <h2>Tab not found</h2>
+          <p>The requested tab could not be found.</p>
+        </div>
+      );
     }
 
     const Component = currentItem.component;
@@ -174,6 +195,14 @@ const VendorDashboard = () => {
       />
     );
   };
+
+  // Filter navigation items based on conditions
+  const visibleNavigationItems = navigationItems.filter(item => {
+    if (item.showOnlyIf) {
+      return item.showOnlyIf();
+    }
+    return true;
+  });
 
   if (isLoading) {
     return (
@@ -195,7 +224,7 @@ const VendorDashboard = () => {
           <div className="vendor-profile">
             <div className="vendor-avatar">
               <img 
-                src={vendor?.profileImage || '/default-avatar.png'} 
+                src={vendor?.businessInfo?.profileImage || '/default-avatar.png'} 
                 alt="Vendor" 
               />
               <div className="status-indicator"></div>
@@ -251,7 +280,7 @@ const VendorDashboard = () => {
 
         {/* Navigation */}
         <nav className="sidebar-nav">
-          {navigationItems.map((item) => (
+          {visibleNavigationItems.map((item) => (
             <button
               key={item.id}
               className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
@@ -298,20 +327,23 @@ const VendorDashboard = () => {
               {sidebarCollapsed ? <Menu size={20} /> : <X size={20} />}
             </button>
             <h1 className="page-title">
-              {navigationItems.find(item => item.id === activeTab)?.name || 'Dashboard'}
+              {visibleNavigationItems.find(item => item.id === activeTab)?.name || 'Dashboard'}
             </h1>
           </div>
 
           <div className="topbar-right">
-            <button className="topbar-btn">
+            <button className="topbar-btn" onClick={() => handleTabChange('notifications')}>
               <Bell size={20} />
               {notifications > 0 && <span className="notification-dot">{notifications}</span>}
             </button>
             
             <div className="vendor-menu">
-              <button className="vendor-menu-btn">
+              <button 
+                className="vendor-menu-btn"
+                onClick={() => handleTabChange('profile')}
+              >
                 <img 
-                  src={vendor?.profileImage || '/default-avatar.png'} 
+                  src={vendor?.businessInfo?.profileImage || '/default-avatar.png'} 
                   alt="Profile" 
                   className="vendor-avatar-sm"
                 />

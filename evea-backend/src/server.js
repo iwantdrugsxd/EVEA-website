@@ -13,7 +13,7 @@ const authRoutes = require('./routes/authRoutes');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
-const { requestLogger } = require('./middleware/logger');
+// const { requestLogger } = require('./middleware/logger');
 
 const app = express();
 
@@ -61,7 +61,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging
-app.use(requestLogger);
+// app.use(requestLogger);
 
 // ==================== DATABASE CONNECTION ====================
 

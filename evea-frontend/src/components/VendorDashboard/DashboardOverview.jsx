@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, Users, IndianRupee, Star, Eye, Calendar } from 'lucide-react';
+import { TrendingUp, Users, IndianRupee, Star, Eye, Calendar,Package } from 'lucide-react';
 
 const DashboardOverview = ({ vendor, dashboardStats }) => {
   const metrics = [

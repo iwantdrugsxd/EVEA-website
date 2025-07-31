@@ -1,3 +1,5 @@
+const mongoose = require('mongoose');
+
 const vendorServiceSchema = new mongoose.Schema({
   vendorId: {
     type: mongoose.Schema.Types.ObjectId,

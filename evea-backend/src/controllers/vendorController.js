@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const Vendor = require('../models/Vendor');
 const VendorService = require('../models/VendorService');
 const { uploadToGoogleDrive, deleteFromGoogleDrive } = require('../services/googleDriveService');
-const { sendVendorWelcomeEmail, sendVendorApprovalEmail } = require('../services/emailService');
+// const { sendVendorWelcomeEmail, sendVendorApprovalEmail } = require('../services/emailService');
 const { generateVendorId } = require('../utils/helpers');
 
 // ==================== REGISTRATION CONTROLLERS ====================
