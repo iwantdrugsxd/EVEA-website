@@ -207,8 +207,17 @@ exports.uploadDocuments = async (req, res) => {
 
     console.log('📄 Document Upload Process Started');
     console.log('👥 Vendor ID:', vendorId);
-    console.log('📁 Files received:', Object.keys(files || {}));
+    console.log('📁 Files received:', files ? Object.keys(files) : 'none');
 
+    // Validate vendor ID
+    if (!vendorId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vendor ID is required'
+      });
+    }
+
+    // Validate files
     if (!files || Object.keys(files).length === 0) {
       return res.status(400).json({
         success: false,
@@ -225,6 +234,7 @@ exports.uploadDocuments = async (req, res) => {
       });
     }
 
+    // Check registration step
     if (vendor.registrationStep < 1) {
       return res.status(400).json({
         success: false,
@@ -241,8 +251,70 @@ exports.uploadDocuments = async (req, res) => {
       identityProof: 'Identity Proof'
     };
 
+    // Validate file types and sizes
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    const maxSizes = {
+      businessRegistration: 5 * 1024 * 1024, // 5MB
+      gstCertificate: 5 * 1024 * 1024,      // 5MB
+      panCard: 2 * 1024 * 1024,             // 2MB
+      bankStatement: 10 * 1024 * 1024,      // 10MB
+      identityProof: 5 * 1024 * 1024        // 5MB
+    };
+
+    // Pre-validate all files before processing
+    for (const [docType, fileArray] of Object.entries(files)) {
+      if (fileArray && fileArray[0]) {
+        const file = fileArray[0];
+        
+        // Check file type
+        if (!allowedTypes.includes(file.mimetype)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid file type for ${documentTypes[docType]}. Only PDF, JPG, and PNG files are allowed.`
+          });
+        }
+        
+        // Check file size
+        const maxSize = maxSizes[docType] || 5 * 1024 * 1024;
+        if (file.size > maxSize) {
+          return res.status(400).json({
+            success: false,
+            message: `File too large for ${documentTypes[docType]}. Maximum size: ${maxSize / (1024 * 1024)}MB`
+          });
+        }
+        
+        // Check if file is empty
+        if (file.size === 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Empty file detected for ${documentTypes[docType]}`
+          });
+        }
+        
+        console.log(`✅ File validation passed: ${docType} - ${file.originalname} (${(file.size / 1024 / 1024).toFixed(2)}MB)`);
+      }
+    }
+
+    // Initialize Google Drive service
+    const { uploadToGoogleDrive, getOrCreateVendorFolder } = require('../services/googleDriveService');
+    
+    // Get or create vendor-specific folder
+    let vendorFolder;
+    try {
+      vendorFolder = await getOrCreateVendorFolder(vendorId, vendor.businessInfo.businessName);
+      console.log(`📁 Vendor folder ready: ${vendorFolder.id}`);
+    } catch (folderError) {
+      console.error('❌ Failed to create vendor folder:', folderError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to prepare document storage. Please try again.',
+        error: process.env.NODE_ENV === 'development' ? folderError.message : undefined
+      });
+    }
+
     const updatedDocuments = { ...vendor.verification.documents };
     const uploadResults = [];
+    const uploadErrors = [];
 
     // Process each uploaded file
     for (const [docType, fileArray] of Object.entries(files)) {
@@ -252,77 +324,183 @@ exports.uploadDocuments = async (req, res) => {
         try {
           console.log(`📎 Processing ${docType}: ${file.originalname}`);
           
-          // Upload to Google Drive
-          const { uploadToGoogleDrive, getOrCreateVendorFolder } = require('../services/googleDriveService');
+          // Generate unique filename
+          const timestamp = Date.now();
+          const sanitizedBusinessName = vendor.businessInfo.businessName.replace(/[^a-zA-Z0-9]/g, '_');
+          const fileExtension = file.originalname.split('.').pop();
+          const uniqueFileName = `${sanitizedBusinessName}_${docType}_${timestamp}.${fileExtension}`;
           
-          // Get or create vendor-specific folder
-          const vendorFolder = await getOrCreateVendorFolder(vendorId, vendor.businessInfo.businessName);
+          // Upload file to Google Drive with retry logic
+          let driveResult;
+          let retryCount = 0;
+          const maxRetries = 3;
           
-          // Upload file to Google Drive
-          const driveResult = await uploadToGoogleDrive(
-            file, 
-            `${vendor.businessInfo.businessName}_${docType}_${Date.now()}.${file.originalname.split('.').pop()}`,
-            vendorFolder.id
-          );
+          while (retryCount < maxRetries) {
+            try {
+              driveResult = await uploadToGoogleDrive(file, uniqueFileName, vendorFolder.id);
+              break; // Success, exit retry loop
+            } catch (uploadError) {
+              retryCount++;
+              console.warn(`⚠️ Upload attempt ${retryCount} failed for ${docType}:`, uploadError.message);
+              
+              if (retryCount >= maxRetries) {
+                throw uploadError;
+              }
+              
+              // Wait before retry (exponential backoff)
+              await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1)));
+            }
+          }
           
+          if (!driveResult) {
+            throw new Error('Upload failed after all retry attempts');
+          }
+          
+          // Store document metadata
           updatedDocuments[docType] = {
             driveFileId: driveResult.fileId,
             fileName: file.originalname,
+            uniqueFileName: uniqueFileName,
             uploadDate: new Date(),
             verified: false,
             fileSize: file.size,
             mimeType: file.mimetype,
             driveUrl: driveResult.driveUrl,
-            webViewLink: driveResult.webViewLink
+            webViewLink: driveResult.webViewLink,
+            uploadAttempts: retryCount + 1
           };
 
           uploadResults.push({
             type: docType,
             name: documentTypes[docType],
-            status: 'uploaded'
+            fileName: file.originalname,
+            status: 'uploaded',
+            fileId: driveResult.fileId
           });
 
-          console.log(`✅ ${docType} processed successfully`);
+          console.log(`✅ ${docType} processed successfully - File ID: ${driveResult.fileId}`);
+          
         } catch (uploadError) {
           console.error(`❌ Failed to upload ${docType}:`, uploadError);
-          return res.status(500).json({
-            success: false,
-            message: `Failed to upload ${documentTypes[docType]}`,
+          
+          uploadErrors.push({
+            type: docType,
+            name: documentTypes[docType],
             error: uploadError.message
           });
+          
+          // For critical documents, fail the entire process
+          if (['businessRegistration', 'panCard', 'identityProof'].includes(docType)) {
+            return res.status(500).json({
+              success: false,
+              message: `Failed to upload ${documentTypes[docType]}. This is a required document.`,
+              error: uploadError.message,
+              uploadResults,
+              uploadErrors
+            });
+          }
         }
       }
     }
 
+    // Check if we have at least some successful uploads
+    if (uploadResults.length === 0) {
+      console.error('❌ No documents were uploaded successfully');
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to upload any documents. Please check your files and try again.',
+        uploadErrors
+      });
+    }
+
     // Update vendor with new documents
-    vendor.verification.documents = updatedDocuments;
-    vendor.registrationStatus = 'step2_completed';
-    vendor.registrationStep = 2;
-    vendor.profileCompletion = 75;
-    vendor.updatedAt = new Date();
-    
-    await vendor.save();
+    try {
+      vendor.verification.documents = updatedDocuments;
+      vendor.registrationStatus = 'step2_completed';
+      vendor.registrationStep = 2;
+      
+      // Calculate profile completion based on uploaded documents
+      const totalRequiredDocs = Object.values(documentTypes).length;
+      const uploadedRequiredDocs = uploadResults.length;
+      vendor.profileCompletion = Math.min(75, Math.round((uploadedRequiredDocs / totalRequiredDocs) * 75));
+      
+      vendor.updatedAt = new Date();
+      
+      await vendor.save();
+      
+      console.log(`✅ Vendor profile updated successfully`);
+      
+    } catch (saveError) {
+      console.error('❌ Failed to save vendor profile:', saveError);
+      return res.status(500).json({
+        success: false,
+        message: 'Documents uploaded but failed to update profile. Please contact support.',
+        error: saveError.message,
+        uploadResults
+      });
+    }
 
-    console.log(`✅ Documents saved successfully for vendor: ${vendor.businessInfo.businessName}`);
+    // Log successful completion
+    console.log(`✅ Documents processed successfully for vendor: ${vendor.businessInfo.businessName}`);
+    console.log(`📊 Upload summary: ${uploadResults.length} successful, ${uploadErrors.length} failed`);
 
-    res.json({
+    // Prepare response
+    const responseMessage = uploadErrors.length > 0 
+      ? `Successfully uploaded ${uploadResults.length} document(s). ${uploadErrors.length} upload(s) failed.`
+      : `Successfully uploaded ${uploadResults.length} document(s). Please complete your service information.`;
+
+    const response = {
       success: true,
-      message: `Successfully uploaded ${uploadResults.length} document(s). Please complete your service information.`,
+      message: responseMessage,
       data: {
         vendorId: vendor._id,
         documentsUploaded: uploadResults,
+        documentsSkipped: uploadErrors,
         registrationStatus: vendor.registrationStatus,
         registrationStep: vendor.registrationStep,
-        profileCompletion: vendor.profileCompletion
+        profileCompletion: vendor.profileCompletion,
+        nextStep: 'Complete your service information to finish registration',
+        summary: {
+          totalUploaded: uploadResults.length,
+          totalFailed: uploadErrors.length,
+          requiredCompleted: uploadResults.filter(doc => 
+            ['businessRegistration', 'panCard', 'identityProof'].includes(doc.type)
+          ).length
+        }
       }
-    });
+    };
+
+    // Add warnings if there were any failures
+    if (uploadErrors.length > 0) {
+      response.warnings = uploadErrors.map(error => 
+        `Failed to upload ${error.name}: ${error.error}`
+      );
+    }
+
+    res.json(response);
 
   } catch (error) {
     console.error('❌ Document Upload Error:', error);
+    
+    // Provide specific error messages based on error type
+    let errorMessage = 'Document upload failed. Please try again.';
+    
+    if (error.message.includes('Google Drive')) {
+      errorMessage = 'Document storage service is temporarily unavailable. Please try again later.';
+    } else if (error.message.includes('file too large')) {
+      errorMessage = 'One or more files are too large. Please compress your files and try again.';
+    } else if (error.message.includes('invalid file')) {
+      errorMessage = 'Invalid file format detected. Please ensure all files are PDF, JPG, or PNG.';
+    } else if (error.message.includes('network')) {
+      errorMessage = 'Network connection error. Please check your internet connection and try again.';
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Document upload failed. Please try again.',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      timestamp: new Date().toISOString(),
+      vendorId: req.params.vendorId
     });
   }
 };
