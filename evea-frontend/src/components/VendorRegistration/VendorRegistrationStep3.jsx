@@ -1,5 +1,5 @@
 // evea-frontend/src/components/VendorRegistration/VendorRegistrationStep3.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   ArrowLeft, 
@@ -38,6 +38,34 @@ const VendorRegistrationStep3 = ({ vendorId, onComplete, onBack }) => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Get vendor ID with multiple fallback options
+  const getVendorId = () => {
+    const id = vendorId || 
+                localStorage.getItem('registrationVendorId') || 
+                sessionStorage.getItem('registrationVendorId');
+    
+    console.log('🔍 Getting vendor ID in Step 3:', {
+      fromProp: vendorId,
+      fromLocalStorage: localStorage.getItem('registrationVendorId'),
+      fromSessionStorage: sessionStorage.getItem('registrationVendorId'),
+      finalId: id
+    });
+    
+    return id;
+  };
+  
+  const finalVendorId = getVendorId();
+
+  // Show error if no vendor ID found
+  useEffect(() => {
+    if (!finalVendorId) {
+      console.error('❌ No vendor ID found in Step 3!');
+      setErrors({ 
+        submit: 'Session expired. Please start registration again from Step 1.' 
+      });
+    }
+  }, [finalVendorId]);
 
   // Service categories
   const serviceCategories = [
@@ -177,6 +205,15 @@ const VendorRegistrationStep3 = ({ vendorId, onComplete, onBack }) => {
     console.log('🎯 Starting Step 3 registration');
     console.log('📊 Services:', services);
     console.log('🏦 Bank Details:', { ...bankDetails, accountNumber: '[HIDDEN]' });
+    console.log('👥 Using vendor ID:', finalVendorId);
+    
+    // CRITICAL: Check vendor ID first
+    if (!finalVendorId) {
+      setErrors({ 
+        submit: 'No vendor ID found. Please start registration from Step 1.' 
+      });
+      return;
+    }
     
     if (!validateForm()) {
       console.log('❌ Form validation failed');
@@ -188,12 +225,13 @@ const VendorRegistrationStep3 = ({ vendorId, onComplete, onBack }) => {
     setSuccessMessage('');
 
     try {
+      // Prepare form data with proper structure
       const submitData = {
         services: services.map(service => ({
           ...service,
           budgetRange: {
-            min: parseInt(service.budgetRange.min),
-            max: parseInt(service.budgetRange.max)
+            min: parseInt(service.budgetRange.min) || 0,
+            max: parseInt(service.budgetRange.max) || 0
           }
         })),
         bankDetails: {
@@ -202,23 +240,48 @@ const VendorRegistrationStep3 = ({ vendorId, onComplete, onBack }) => {
         }
       };
 
-      const result = await registerStep3(vendorId, submitData);
+      console.log('🚀 Calling registerStep3 with:', { vendorId: finalVendorId, submitData });
       
-      if (result.success) {
+      // Call the registerStep3 function from AuthContext
+      const result = await registerStep3(finalVendorId, submitData);
+      
+      console.log('📡 registerStep3 result:', result);
+      
+      if (result && result.success) {
         console.log('✅ Step 3 registration completed successfully');
         setSuccessMessage('Registration completed successfully! Your application is now under review.');
         
         // Complete registration after showing success message
         setTimeout(() => {
-          onComplete();
-        }, 3000);
+          if (onComplete && typeof onComplete === 'function') {
+            console.log('🔄 Calling onComplete - Registration finished');
+            onComplete(); // Signal completion to parent
+          } else {
+            console.error('⚠️ onComplete function not provided');
+            // Fallback navigation
+            window.location.href = '/vendor-login?registration=complete';
+          }
+        }, 2000);
+        
       } else {
-        console.log('❌ Step 3 registration failed:', result.message);
-        setErrors({ submit: result.message || 'Registration completion failed' });
+        const errorMessage = result?.message || 'Registration completion failed';
+        console.log('❌ Step 3 registration failed:', errorMessage);
+        setErrors({ submit: errorMessage });
       }
+      
     } catch (error) {
       console.error('❌ Step 3 registration error:', error);
-      setErrors({ submit: 'Registration failed. Please try again.' });
+      
+      // Handle different types of errors
+      let errorMessage = 'Registration failed. Please try again.';
+      
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      setErrors({ submit: errorMessage });
     } finally {
       setLoading(false);
     }
@@ -227,6 +290,23 @@ const VendorRegistrationStep3 = ({ vendorId, onComplete, onBack }) => {
   return (
     <div className="vendor-registration-step3">
       <div className="registration-container">
+        {/* Debug info - remove in production */}
+        {process.env.NODE_ENV === 'development' && (
+          <div style={{ 
+            background: '#f0f0f0', 
+            padding: '10px', 
+            margin: '10px 0', 
+            borderRadius: '5px',
+            fontSize: '12px',
+            fontFamily: 'monospace'
+          }}>
+            <strong>Debug Info:</strong><br/>
+            Vendor ID Prop: {vendorId || 'undefined'}<br/>
+            localStorage ID: {localStorage.getItem('registrationVendorId') || 'undefined'}<br/>
+            Final ID: {finalVendorId || 'undefined'}
+          </div>
+        )}
+
         <div className="registration-header">
           <h1>Services & Banking</h1>
           <p>Step 3 of 3: Setup Your Services and Payment Details</p>
@@ -509,7 +589,7 @@ const VendorRegistrationStep3 = ({ vendorId, onComplete, onBack }) => {
             <button 
               type="submit" 
               className="complete-btn"
-              disabled={loading}
+              disabled={loading || !finalVendorId}
             >
               {loading ? (
                 <div className="loading-content">

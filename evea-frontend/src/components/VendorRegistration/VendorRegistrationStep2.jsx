@@ -1,5 +1,5 @@
 // evea-frontend/src/components/VendorRegistration/VendorRegistrationStep2.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   ArrowRight, 
@@ -22,6 +22,34 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Get vendor ID with multiple fallback options
+  const getVendorId = () => {
+    const id = vendorId || 
+                localStorage.getItem('registrationVendorId') || 
+                sessionStorage.getItem('registrationVendorId');
+    
+    console.log('🔍 Getting vendor ID:', {
+      fromProp: vendorId,
+      fromLocalStorage: localStorage.getItem('registrationVendorId'),
+      fromSessionStorage: sessionStorage.getItem('registrationVendorId'),
+      finalId: id
+    });
+    
+    return id;
+  };
+  
+  const finalVendorId = getVendorId();
+
+  // Show error if no vendor ID found
+  useEffect(() => {
+    if (!finalVendorId) {
+      console.error('❌ No vendor ID found in Step 2!');
+      setErrors({ 
+        submit: 'Session expired. Please start registration again from Step 1.' 
+      });
+    }
+  }, [finalVendorId]);
 
   // Document requirements configuration
   const documentRequirements = {
@@ -155,6 +183,15 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
     
     console.log('📄 Starting document upload process');
     console.log('📁 Files to upload:', Object.keys(files));
+    console.log('👥 Using vendor ID:', finalVendorId);
+    
+    // CRITICAL: Check vendor ID first
+    if (!finalVendorId) {
+      setErrors({ 
+        submit: 'No vendor ID found. Please start registration from Step 1.' 
+      });
+      return;
+    }
     
     if (!validateForm()) {
       console.log('❌ Form validation failed');
@@ -171,23 +208,36 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
     setSuccessMessage('');
 
     try {
-      const result = await registerStep2(vendorId, files);
+      console.log('🚀 Calling registerStep2 with:', finalVendorId);
       
-      if (result.success) {
+      const result = await registerStep2(finalVendorId, files);
+      
+      console.log('📡 registerStep2 result:', result);
+      
+      if (result && result.success) {
         console.log('✅ Documents uploaded successfully');
         setSuccessMessage('Documents uploaded successfully! Moving to final step...');
         
-        // Move to next step after showing success message
         setTimeout(() => {
-          onNext();
-        }, 2000);
+          if (onNext && typeof onNext === 'function') {
+            console.log('🔄 Moving to Step 3');
+            onNext();
+          } else {
+            console.error('⚠️ onNext function not provided');
+            // Fallback navigation
+            window.location.href = '/vendor/register?step=3';
+          }
+        }, 1500);
+        
       } else {
-        console.log('❌ Document upload failed:', result.message);
-        setErrors({ submit: result.message || 'Document upload failed' });
+        const errorMessage = result?.message || 'Document upload failed';
+        console.log('❌ Document upload failed:', errorMessage);
+        setErrors({ submit: errorMessage });
       }
+      
     } catch (error) {
       console.error('❌ Document upload error:', error);
-      setErrors({ submit: 'Upload failed. Please try again.' });
+      setErrors({ submit: error.message || 'Upload failed. Please try again.' });
     } finally {
       setLoading(false);
     }
@@ -315,6 +365,23 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
   return (
     <div className="vendor-registration-step2">
       <div className="registration-container">
+        {/* Debug info - remove in production */}
+        {process.env.NODE_ENV === 'development' && (
+          <div style={{ 
+            background: '#f0f0f0', 
+            padding: '10px', 
+            margin: '10px 0', 
+            borderRadius: '5px',
+            fontSize: '12px',
+            fontFamily: 'monospace'
+          }}>
+            <strong>Debug Info:</strong><br/>
+            Vendor ID Prop: {vendorId || 'undefined'}<br/>
+            localStorage ID: {localStorage.getItem('registrationVendorId') || 'undefined'}<br/>
+            Final ID: {finalVendorId || 'undefined'}
+          </div>
+        )}
+
         <div className="registration-header">
           <h1>Document Upload</h1>
           <p>Step 2 of 3: Upload Required Documents</p>
@@ -391,7 +458,7 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
             <button 
               type="submit" 
               className="next-step-btn"
-              disabled={loading || getUploadedCount() === 0}
+              disabled={loading || getUploadedCount() === 0 || !finalVendorId}
             >
               {loading ? (
                 <div className="loading-content">

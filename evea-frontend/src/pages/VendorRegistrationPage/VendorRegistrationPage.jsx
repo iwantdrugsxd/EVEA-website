@@ -1,4 +1,4 @@
-// pages/VendorRegistrationPage/VendorRegistrationPage.jsx
+// evea-frontend/src/pages/VendorRegistrationPage/VendorRegistrationPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Check, CheckCircle, Clock, ArrowLeft, Heart } from 'lucide-react';
@@ -19,14 +19,19 @@ const VendorRegistrationPage = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [registrationComplete, setRegistrationComplete] = useState(false);
   const [redirectCountdown, setRedirectCountdown] = useState(5);
+  
+  // Add vendorId state to track it properly
+  const [vendorId, setVendorId] = useState(() => {
+    // Try to get vendor ID from localStorage on component mount
+    const storedVendorId = localStorage.getItem('registrationVendorId') || 
+                          sessionStorage.getItem('registrationVendorId');
+    console.log('🔍 Initial vendor ID from storage:', storedVendorId);
+    return storedVendorId;
+  });
 
   const {
     isLoading,
     error,
-    vendorId,
-    handleStep1,
-    handleStep2,
-    handleStep3,
     clearError
   } = useVendorRegistration();
 
@@ -42,6 +47,9 @@ const VendorRegistrationPage = () => {
     }
     
     if (registrationComplete && redirectCountdown === 0) {
+      // Clear registration data before redirecting
+      localStorage.removeItem('registrationVendorId');
+      sessionStorage.removeItem('registrationVendorId');
       navigate('/vendor-login');
     }
   }, [registrationComplete, redirectCountdown, navigate]);
@@ -53,22 +61,79 @@ const VendorRegistrationPage = () => {
     }
   }, [currentStep, clearError]);
 
+  // Check URL parameters on mount to restore step state
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const stepParam = urlParams.get('step');
+    const vendorIdParam = urlParams.get('vendorId');
+    
+    if (stepParam) {
+      const step = parseInt(stepParam);
+      if (step >= 1 && step <= 3) {
+        console.log('🔄 Restoring step from URL:', step);
+        setCurrentStep(step);
+      }
+    }
+    
+    if (vendorIdParam && !vendorId) {
+      console.log('🔄 Restoring vendor ID from URL:', vendorIdParam);
+      setVendorId(vendorIdParam);
+      localStorage.setItem('registrationVendorId', vendorIdParam);
+    }
+  }, [vendorId]);
+
   // Handle step navigation
   const handleNext = async (formData) => {
+    console.log('🎯 HandleNext called for step:', currentStep);
+    console.log('📦 FormData received:', typeof formData, formData);
+    
     try {
       if (currentStep === 1) {
-        await handleStep1(formData);
+        // For step 1, formData is the vendorId returned from Step1 component
+        const receivedVendorId = formData;
+        console.log('✅ Received vendor ID from Step 1:', receivedVendorId);
+        
+        if (!receivedVendorId) {
+          throw new Error('Vendor ID not received from Step 1');
+        }
+        
+        // Store vendor ID in both state and storage
+        setVendorId(receivedVendorId);
+        localStorage.setItem('registrationVendorId', receivedVendorId);
+        sessionStorage.setItem('registrationVendorId', receivedVendorId);
+        
+        // Update URL to reflect current step
+        const newUrl = `${window.location.pathname}?step=2&vendorId=${receivedVendorId}`;
+        window.history.replaceState({}, '', newUrl);
+        
         setCurrentStep(2);
         toast.success('Step 1 completed successfully!');
+        
       } else if (currentStep === 2) {
-        await handleStep2(formData);
+        // For step 2, documents are already uploaded by the Step2 component
+        // Just move to step 3 without calling handleStep2
+        console.log('✅ Step 2 documents already uploaded, moving to Step 3');
+        
+        // Update URL
+        const currentVendorId = vendorId || localStorage.getItem('registrationVendorId');
+        const newUrl = `${window.location.pathname}?step=3&vendorId=${currentVendorId}`;
+        window.history.replaceState({}, '', newUrl);
+        
         setCurrentStep(3);
         toast.success('Documents uploaded successfully!');
+        
       } else if (currentStep === 3) {
-        await handleStep3(formData);
+        // For step 3, services are already submitted by the Step3 component
+        // Complete the registration process
+        console.log('✅ Step 3 services already submitted, completing registration');
+        
+        // Clear URL parameters
+        window.history.replaceState({}, '', window.location.pathname);
+        
         setRegistrationComplete(true);
         toast.success('Registration completed successfully!');
       }
+      
     } catch (err) {
       console.error('Registration step error:', err);
       toast.error(err.message || 'Registration failed. Please try again.');
@@ -77,11 +142,22 @@ const VendorRegistrationPage = () => {
 
   const handlePrevious = () => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+      const newStep = currentStep - 1;
+      setCurrentStep(newStep);
+      
+      // Update URL
+      const currentVendorId = vendorId || localStorage.getItem('registrationVendorId');
+      if (currentVendorId) {
+        const newUrl = `${window.location.pathname}?step=${newStep}&vendorId=${currentVendorId}`;
+        window.history.replaceState({}, '', newUrl);
+      }
     }
   };
 
   const handleGoToLogin = () => {
+    // Clear registration data
+    localStorage.removeItem('registrationVendorId');
+    sessionStorage.removeItem('registrationVendorId');
     navigate('/vendor-login');
   };
 
@@ -119,58 +195,10 @@ const VendorRegistrationPage = () => {
     </div>
   );
 
-  // Success step component
-  const renderSuccessStep = () => (
-    <div className="success-animation">
-      <CheckCircle size={80} className="success-icon" />
-      <h2 className="success-title">Registration Submitted Successfully!</h2>
-      <p className="success-message">
-        Thank you for joining EVEA! Your vendor registration has been submitted and is now under review.
-      </p>
-      
-      <div className="success-next-steps">
-        <h3 className="next-steps-title">What Happens Next?</h3>
-        <ul className="next-steps-list">
-          <li>Our team will review your application within 2-3 business days</li>
-          <li>We'll verify your documents and business information</li>
-          <li>You'll receive an email notification once your account is approved</li>
-          <li>After approval, you can access your vendor dashboard</li>
-          <li>Start receiving bookings and grow your business with EVEA</li>
-        </ul>
-      </div>
-
-      {/* Auto-redirect notification */}
-      <div className="redirect-notification">
-        <div className="redirect-info">
-          <Clock size={20} />
-          <span>Redirecting to login page in {redirectCountdown} seconds...</span>
-        </div>
-        <div className="redirect-progress">
-          <div 
-            className="progress-fill" 
-            style={{ width: `${((5 - redirectCountdown) / 5) * 100}%` }}
-          ></div>
-        </div>
-      </div>
-      
-      <div className="success-buttons">
-        <button 
-          className="success-btn primary"
-          onClick={handleGoToLogin}
-        >
-          Go to Login Now
-        </button>
-        <Link to="/" className="success-btn secondary">
-          Return to Homepage
-        </Link>
-      </div>
-    </div>
-  );
-
-  // Error display component
-  const renderError = () => {
+  // Error banner component
+  const renderErrorBanner = () => {
     if (!error) return null;
-
+    
     return (
       <div className="error-banner">
         <div className="error-content">
@@ -187,8 +215,15 @@ const VendorRegistrationPage = () => {
     );
   };
 
-  // Current step content
+  // Current step content - FIXED TO PASS VENDOR ID PROPERLY
   const renderCurrentStep = () => {
+    // Always use the most up-to-date vendor ID
+    const currentVendorId = vendorId || 
+                           localStorage.getItem('registrationVendorId') || 
+                           sessionStorage.getItem('registrationVendorId');
+    
+    console.log('🔍 Rendering step:', currentStep, 'with vendor ID:', currentVendorId);
+    
     switch (currentStep) {
       case 1:
         return (
@@ -200,21 +235,28 @@ const VendorRegistrationPage = () => {
       case 2:
         return (
           <VendorRegistrationStep2
+            vendorId={currentVendorId} // Pass the current vendor ID
             onNext={handleNext}
-            onPrevious={handlePrevious}
+            onBack={handlePrevious}
             isLoading={isLoading}
           />
         );
       case 3:
         return (
           <VendorRegistrationStep3
-            onNext={handleNext}
-            onPrevious={handlePrevious}
+            vendorId={currentVendorId} // Pass the current vendor ID
+            onComplete={handleNext} // Use handleNext as onComplete for step 3
+            onBack={handlePrevious}
             isLoading={isLoading}
           />
         );
       default:
-        return null;
+        return (
+          <VendorRegistrationStep1
+            onNext={handleNext}
+            isLoading={isLoading}
+          />
+        );
     }
   };
 
@@ -231,8 +273,39 @@ const VendorRegistrationPage = () => {
           </div>
         </div>
         <div className="registration-container">
-          <div className="registration-wrapper">
-            {renderSuccessStep()}
+          <div className="success-animation">
+            <CheckCircle size={80} className="success-icon" />
+            <h2 className="success-title">Registration Submitted Successfully!</h2>
+            <p className="success-message">
+              Thank you for joining EVEA! Your vendor registration has been submitted and is now under review.
+            </p>
+            <div className="success-details">
+              <div className="success-step">
+                <CheckCircle size={16} />
+                <span>Application submitted for review</span>
+              </div>
+              <div className="success-step">
+                <Clock size={16} />
+                <span>You'll receive an email notification within 24-48 hours</span>
+              </div>
+              <div className="success-step">
+                <Heart size={16} />
+                <span>Welcome to the EVEA vendor community!</span>
+              </div>
+            </div>
+            
+            <div className="success-actions">
+              <button 
+                className="btn btn-primary"
+                onClick={handleGoToLogin}
+              >
+                Go to Vendor Login ({redirectCountdown}s)
+              </button>
+              <Link to="/" className="btn btn-secondary">
+                <ArrowLeft size={20} />
+                Back to Home
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -241,7 +314,6 @@ const VendorRegistrationPage = () => {
 
   return (
     <div className="vendor-registration-page">
-      {/* Background Elements */}
       <div className="registration-background">
         <div className="registration-gradient"></div>
         <div className="floating-shapes">
@@ -250,42 +322,32 @@ const VendorRegistrationPage = () => {
           <div className="shape shape-3"></div>
         </div>
       </div>
-
-      {/* Header */}
-      <div className="registration-header">
-        <div className="header-container">
-          <Link to="/" className="registration-logo">
-            <Heart className="heart-icon" size={24} />
-            <span>EVEA</span>
-          </Link>
-          <Link to="/" className="header-back">
-            <ArrowLeft size={20} />
-            <span>Back to Home</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* Main Content */}
+      
       <div className="registration-container">
-        <div className="registration-wrapper">
-          {/* Progress Section */}
-          {renderProgressBar()}
-
-          {/* Error Display */}
-          {renderError()}
-
-          {/* Step Content */}
-          <div className="step-content-wrapper">
-            {renderCurrentStep()}
+        {/* Debug info - remove in production */}
+        {process.env.NODE_ENV === 'development' && (
+          <div style={{ 
+            background: '#f0f0f0', 
+            padding: '10px', 
+            margin: '10px 0', 
+            borderRadius: '5px',
+            fontSize: '12px',
+            fontFamily: 'monospace'
+          }}>
+            <strong>Main Page Debug:</strong><br/>
+            Current Step: {currentStep}<br/>
+            Vendor ID State: {vendorId || 'undefined'}<br/>
+            localStorage ID: {localStorage.getItem('registrationVendorId') || 'undefined'}<br/>
+            Registration Complete: {registrationComplete ? 'Yes' : 'No'}
           </div>
-        </div>
+        )}
+        
+        {renderProgressBar()}
+        {renderErrorBanner()}
+        {renderCurrentStep()}
       </div>
     </div>
   );
 };
 
 export default VendorRegistrationPage;
-
-
-
-// hooks/useVendorRegistration.js (Updated version)

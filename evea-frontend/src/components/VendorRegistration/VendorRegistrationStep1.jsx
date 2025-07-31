@@ -150,7 +150,7 @@ const VendorRegistrationStep1 = ({ onNext }) => {
 
       console.log('🚀 Submitting Step 1 data:', { ...submitData, password: '[HIDDEN]' });
 
-      // Direct API call instead of using context (for debugging)
+      // Direct API call
       const response = await fetch('http://localhost:5000/api/vendors/register/step1', {
         method: 'POST',
         headers: {
@@ -164,17 +164,47 @@ const VendorRegistrationStep1 = ({ onNext }) => {
 
       if (result.success) {
         console.log('✅ Step 1 completed successfully');
-        setSuccessMessage(result.message || 'Registration successful!');
+        console.log('📋 Full API Response:', result);
         
-        // Call onNext with vendor ID after showing success
-        setTimeout(() => {
-          if (onNext) {
-            onNext(result.data.vendorId);
+        // Extract vendor ID from response - try all possible locations
+        let vendorId = null;
+        
+        if (result.data && result.data.vendorId) {
+          vendorId = result.data.vendorId;
+        } else if (result.data && result.data._id) {
+          vendorId = result.data._id;
+        } else if (result.vendorId) {
+          vendorId = result.vendorId;
+        } else if (result._id) {
+          vendorId = result._id;
+        }
+        
+        console.log('🔍 Extracted vendor ID:', vendorId);
+        
+        if (vendorId) {
+          // Store in multiple places to ensure it persists
+          localStorage.setItem('registrationVendorId', vendorId);
+          sessionStorage.setItem('registrationVendorId', vendorId);
+          
+          console.log('💾 Stored vendor ID:', vendorId);
+          
+          setSuccessMessage(result.message || 'Registration successful!');
+          
+          // Navigate immediately
+          if (onNext && typeof onNext === 'function') {
+            console.log('🔄 Calling onNext with vendor ID:', vendorId);
+            onNext(vendorId);
           } else {
-            console.warn('⚠️ onNext function not provided');
+            console.error('⚠️ onNext function not provided');
+            // Fallback navigation
+            setTimeout(() => {
+              window.location.href = '/vendor/register?step=2';
+            }, 1000);
           }
-        }, 1500);
-
+        } else {
+          console.error('❌ Could not extract vendor ID from response');
+          setErrors({ submit: 'Registration succeeded but vendor ID missing. Please try again.' });
+        }
       } else {
         console.log('❌ Registration failed:', result.message);
         setErrors({ submit: result.message || 'Registration failed' });
@@ -183,7 +213,7 @@ const VendorRegistrationStep1 = ({ onNext }) => {
     } catch (error) {
       console.error('❌ Network/API error:', error);
       setErrors({ 
-        submit: 'Network error. Please check if backend server is running.' 
+        submit: error.message || 'Network error. Please check if backend server is running.'
       });
     } finally {
       setLoading(false);

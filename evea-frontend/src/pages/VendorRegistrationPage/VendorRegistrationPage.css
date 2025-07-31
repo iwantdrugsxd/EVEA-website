@@ -311,13 +311,15 @@
 
 /* Registration Container */
 .registration-container {
-  position: relative;
-  z-index: 2;
-  min-height: calc(100vh - 80px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
+    position: relative;
+    z-index: 2;
+    min-height: calc(100vh - 80px);
+    display: flex
+;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    flex-direction: column;
 }
 
 .registration-wrapper {
