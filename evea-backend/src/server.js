@@ -93,7 +93,7 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/vendors', vendorRoutes);
 
 // Catch-all route for undefined endpoints
-app.use('*', (req, res) => {
+app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: 'Route not found'
@@ -103,7 +103,7 @@ app.use('*', (req, res) => {
 // ==================== ERROR HANDLING ====================
 
 // Global error handler
-app.use(errorHandler);
+// app.use(errorHandler);
 
 // ==================== SERVER STARTUP ====================
 
