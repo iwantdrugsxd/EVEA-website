@@ -1,4 +1,4 @@
-// VendorRegistrationStep3.jsx - FIXED VERSION for vendor ID: 688bbc1843f3df2f6a6e4dda
+// VendorRegistrationStep3.jsx - WORKING VERSION WITH PROPER LOGIC
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLocation, useParams } from 'react-router-dom';
@@ -9,9 +9,7 @@ import {
   Plus,
   X,
   CreditCard,
-  Building2,
   Sparkles,
-  Target,
   IndianRupee
 } from 'lucide-react';
 import './VendorRegistrationStep3.css';
@@ -42,69 +40,22 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // FIXED: Enhanced vendor ID resolution with better fallback chain (same as Step 2)
-  const getVendorId = () => {
-    // Priority order: URL params > component props > location state > localStorage > sessionStorage
-    const sources = {
-      urlParam: paramVendorId,
-      componentProp: propVendorId,
-      locationState: location.state?.vendorId,
-      localStorage: localStorage.getItem('registrationVendorId'),
-      sessionStorage: sessionStorage.getItem('registrationVendorId'),
-      // Check for vendor data object in localStorage
-      vendorDataId: (() => {
-        try {
-          const vendorData = JSON.parse(localStorage.getItem('vendorRegistrationData') || '{}');
-          return vendorData.vendorId || vendorData._id;
-        } catch (e) {
-          return null;
-        }
-      })()
-    };
-    
-    console.log('🔍 Step 3 - Vendor ID Resolution Sources:', sources);
-    
-    // Return first valid ID found
-    const finalId = sources.urlParam || 
-                   sources.componentProp || 
-                   sources.locationState || 
-                   sources.localStorage || 
-                   sources.sessionStorage ||
-                   sources.vendorDataId;
-    
-    console.log('✅ Step 3 - Final vendor ID selected:', finalId);
-    return finalId;
-  };
-  
-  const finalVendorId = getVendorId();
+  // ENHANCED vendor ID resolution - keeping original logic but with fallbacks
+const finalVendorId = propVendorId || 
+                     paramVendorId || 
+                     location.state?.vendorId || 
+                     localStorage.getItem('registrationVendorId') || 
+                     sessionStorage.getItem('registrationVendorId') || 
+                     (() => {
+                       try {
+                         const vendorData = JSON.parse(localStorage.getItem('vendorRegistrationData') || '{}');
+                         return vendorData.vendorId || vendorData._id;
+                       } catch (e) {
+                         return null;
+                       }
+                     })();
 
-  // Enhanced error handling and ID persistence
-  useEffect(() => {
-    if (!finalVendorId) {
-      console.error('❌ CRITICAL: No vendor ID found in Step 3!');
-      
-      // Try to extract from current URL if it's in the path
-      const pathParts = window.location.pathname.split('/');
-      const possibleId = pathParts[pathParts.length - 1];
-      
-      if (possibleId && possibleId.length === 24) { // MongoDB ObjectId length
-        console.log('🔄 Found potential vendor ID in URL path:', possibleId);
-        localStorage.setItem('registrationVendorId', possibleId);
-        window.location.reload(); // Reload to pick up the ID
-        return;
-      }
-      
-      setErrors({ 
-        submit: 'Registration session lost. Please restart from Step 1 or return to Step 2.' 
-      });
-    } else {
-      // Ensure the ID is stored in localStorage for future use
-      localStorage.setItem('registrationVendorId', finalVendorId);
-      console.log('💾 Step 3 - Vendor ID saved to localStorage:', finalVendorId);
-    }
-  }, [finalVendorId]);
-
-  // Service categories
+  // Service categories and event types
   const serviceCategories = [
     'Photography & Videography',
     'Catering Services',
@@ -119,7 +70,6 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
     'Other Services'
   ];
 
-  // Event types
   const eventTypes = [
     'Wedding',
     'Birthday Party',
@@ -133,7 +83,29 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
     'Social Gathering'
   ];
 
+  // FIXED: Add debug logging and loading state timeout
+  useEffect(() => {
+    console.log('🔍 FORM DEBUG:', {
+      loading,
+      finalVendorId,
+      servicesCount: services.length,
+      hasRegisterStep3Function: !!registerStep3
+    });
+
+    // Auto-reset loading if stuck for more than 30 seconds
+    if (loading) {
+      const timeout = setTimeout(() => {
+        console.log('⚠️ Loading timeout - force reset');
+        setLoading(false);
+      }, 30000);
+      return () => clearTimeout(timeout);
+    }
+  }, [loading, finalVendorId, services.length, registerStep3]);
+
+  // Service change handler with logging
   const handleServiceChange = (index, field, value) => {
+    console.log('📝 Service change:', { index, field, value });
+    
     const updatedServices = [...services];
     if (field.includes('.')) {
       const [parent, child] = field.split('.');
@@ -151,6 +123,8 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
   };
 
   const handleEventTypeToggle = (serviceIndex, eventType) => {
+    console.log('✅ Event toggle:', { serviceIndex, eventType });
+    
     const updatedServices = [...services];
     const currentEventTypes = updatedServices[serviceIndex].eventTypes;
     
@@ -164,6 +138,7 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
   };
 
   const addService = () => {
+    console.log('➕ Adding service');
     setServices([...services, {
       title: '',
       category: '',
@@ -175,6 +150,7 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
   };
 
   const removeService = (index) => {
+    console.log('➖ Removing service:', index);
     if (services.length > 1) {
       const updatedServices = services.filter((_, i) => i !== index);
       setServices(updatedServices);
@@ -182,18 +158,18 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
   };
 
   const handleBankDetailsChange = (field, value) => {
+    console.log('🏦 Bank change:', { field, value });
     setBankDetails(prev => ({ ...prev, [field]: value }));
     
-    // Clear errors
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
     }
   };
 
+  // ENHANCED form validation
   const validateForm = () => {
     const newErrors = {};
 
-    // FIXED: Always validate vendor ID first
     if (!finalVendorId) {
       newErrors.submit = 'Vendor ID is missing. Please restart registration.';
       return false;
@@ -243,35 +219,41 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
     return Object.keys(newErrors).length === 0;
   };
 
+  // FIXED submit handler with proper error handling and logging
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    console.log('🎯 Starting Step 3 registration');
-    console.log('📊 Services:', services);
-    console.log('🏦 Bank Details:', { ...bankDetails, accountNumber: '[HIDDEN]' });
-    console.log('👥 Using vendor ID:', finalVendorId);
+    console.log('🚀 SUBMIT BUTTON CLICKED');
+    console.log('📊 Current state:', {
+      loading,
+      finalVendorId,
+      servicesCount: services.length,
+      registerStep3Available: !!registerStep3
+    });
     
-    // FIXED: Enhanced vendor ID validation
-    if (!finalVendorId) {
-      console.error('❌ CRITICAL: No vendor ID available for Step 3 submission');
-      setErrors({ 
-        submit: 'Vendor ID is missing. Please restart registration from Step 1.' 
-      });
+    // Prevent double submission
+    if (loading) {
+      console.log('❌ Already submitting, ignoring click');
       return;
     }
 
-    // Validate MongoDB ObjectId format
-    if (!/^[0-9a-fA-F]{24}$/.test(finalVendorId)) {
-      console.error('❌ Invalid vendor ID format:', finalVendorId);
-      setErrors({ 
-        submit: 'Invalid vendor ID format. Please restart registration.' 
-      });
+    // Validate vendor ID
+    if (!finalVendorId) {
+      console.error('❌ No vendor ID available');
+      setErrors({ submit: 'Vendor ID is missing. Please restart registration.' });
       return;
     }
-    
+
+    // Validate form
     if (!validateForm()) {
-      console.log('❌ Form validation failed');
-      console.log('📋 Current errors:', errors);
+      console.log('❌ Form validation failed:', errors);
+      return;
+    }
+
+    // Check if registerStep3 function exists
+    if (!registerStep3 || typeof registerStep3 !== 'function') {
+      console.error('❌ registerStep3 function not available');
+      setErrors({ submit: 'Registration function not available. Please refresh the page.' });
       return;
     }
 
@@ -280,7 +262,8 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
     setSuccessMessage('');
 
     try {
-      // Prepare form data with proper structure
+      console.log('📦 Preparing submission data...');
+      
       const submitData = {
         services: services.map(service => ({
           ...service,
@@ -295,48 +278,45 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
         }
       };
 
-      console.log('🚀 Calling registerStep3 with vendor ID:', finalVendorId);
-      console.log('📦 Submit data structure:', {
+      console.log('🚀 Calling registerStep3 with:', {
+        vendorId: finalVendorId,
         servicesCount: submitData.services.length,
         bankDetailsKeys: Object.keys(submitData.bankDetails)
       });
       
-      // Call the registerStep3 function from AuthContext
       const result = await registerStep3(finalVendorId, submitData);
       
-      console.log('📡 registerStep3 result:', result);
+      console.log('📡 API Result:', result);
       
       if (result && result.success) {
-        console.log('✅ Step 3 registration completed successfully');
+        console.log('✅ Registration successful');
         setSuccessMessage('Registration completed successfully! Your application is now under review.');
         
         // Store completion status
         localStorage.setItem('registrationStep', '3');
         localStorage.setItem('registrationComplete', 'true');
         
+        // Call completion callback
         setTimeout(() => {
-          console.log('🎉 Calling onComplete callback');
           if (onComplete && typeof onComplete === 'function') {
             onComplete();
           } else {
-            // Fallback navigation
-            console.log('⚠️ onComplete not provided, using fallback navigation');
+            console.log('⚠️ No onComplete callback, redirecting...');
             window.location.href = '/vendor/dashboard';
           }
         }, 2000);
         
       } else {
-        const errorMessage = result?.message || 'Registration failed. Please try again.';
-        console.error('❌ Step 3 registration failed:', errorMessage);
-        throw new Error(errorMessage);
+        throw new Error(result?.message || 'Registration failed. Please try again.');
       }
       
     } catch (error) {
-      console.error('❌ Step 3 registration error:', error);
+      console.error('❌ Submit error:', error);
       setErrors({ 
         submit: error.message || 'Registration failed. Please check your information and try again.' 
       });
     } finally {
+      console.log('🔄 Setting loading to false');
       setLoading(false);
     }
   };
@@ -344,34 +324,33 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
   return (
     <div className="vendor-registration-step3">
       <div className="registration-container">
-        {/* FIXED: Enhanced debug info for Step 3 */}
-        {process.env.NODE_ENV === 'development' && (
-          <div style={{ 
-            background: finalVendorId ? '#e6fffa' : '#fef2f2', 
-            padding: '15px', 
-            margin: '10px 0', 
-            borderRadius: '8px',
-            fontSize: '13px',
-            fontFamily: 'monospace',
-            border: `2px solid ${finalVendorId ? '#38b2ac' : '#f56565'}`
-          }}>
-            <strong>🔧 Step 3 Debug Panel:</strong><br/>
-            URL Param ID: {paramVendorId || 'undefined'}<br/>
-            Component Prop ID: {propVendorId || 'undefined'}<br/>
-            Location State ID: {location.state?.vendorId || 'undefined'}<br/>
-            localStorage ID: {localStorage.getItem('registrationVendorId') || 'undefined'}<br/>
-            sessionStorage ID: {sessionStorage.getItem('registrationVendorId') || 'undefined'}<br/>
-            <strong>Final Selected ID: {finalVendorId || '❌ MISSING'}</strong><br/>
-            ID Format Valid: {finalVendorId && /^[0-9a-fA-F]{24}$/.test(finalVendorId) ? '✅ Yes' : '❌ No'}<br/>
-            Current URL: {window.location.pathname}
+        {/* Enhanced Debug Panel */}
+        <div className="debug-panel">
+          <div className="debug-header">🔧 Form Debug Status</div>
+          <div className="debug-grid">
+            <div>Loading: <span className={loading ? 'status-bad' : 'status-good'}>{loading ? 'YES' : 'NO'}</span></div>
+            <div>Vendor ID: <span className={finalVendorId ? 'status-good' : 'status-bad'}>{finalVendorId ? 'Present' : 'Missing'}</span></div>
+            <div>Services: <span className="status-info">{services.length}</span></div>
+            <div>Register Func: <span className={registerStep3 ? 'status-good' : 'status-bad'}>{registerStep3 ? 'Available' : 'Missing'}</span></div>
           </div>
-        )}
+          {loading && (
+            <button 
+              onClick={() => setLoading(false)} 
+              className="debug-reset-btn"
+              type="button"
+            >
+              🔧 Force Reset Loading
+            </button>
+          )}
+        </div>
 
         <div className="registration-header">
-          <h1>Services & Bank Details</h1>
-          <p>Step 3 of 3: Setup Your Services & Payment Information</p>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: '100%' }}></div>
+          <div className="header-content">
+            <h1>Services & Bank Details</h1>
+            <p>Step 3 of 3: Setup Your Services & Payment Information</p>
+            <div className="progress-bar">
+              <div className="progress-fill"></div>
+            </div>
           </div>
         </div>
 
@@ -386,130 +365,163 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
           {/* Services Section */}
           <div className="form-section">
             <div className="section-header">
-              <h3>
+              <h2>
                 <Sparkles size={24} />
                 Your Services
-              </h3>
-              <p>Tell us about the services you offer</p>
+              </h2>
+              <p>Tell us about the services you offer to potential clients</p>
             </div>
 
-            {services.map((service, index) => (
-              <div key={index} className="service-card">
-                <div className="service-header">
-                  <h4>Service {index + 1}</h4>
-                  {services.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeService(index)}
-                      className="remove-service-btn"
-                    >
-                      <X size={20} />
-                    </button>
-                  )}
-                </div>
-
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Service Title*</label>
-                    <input
-                      type="text"
-                      value={service.title}
-                      onChange={(e) => handleServiceChange(index, 'title', e.target.value)}
-                      placeholder="e.g., Wedding Photography"
-                      className={errors[`service${index}_title`] ? 'error' : ''}
-                    />
-                    {errors[`service${index}_title`] && (
-                      <span className="error-text">{errors[`service${index}_title`]}</span>
+            <div className="services-container">
+              {services.map((service, index) => (
+                <div key={index} className="service-card">
+                  <div className="service-card-header">
+                    <h3>Service {index + 1}</h3>
+                    {services.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeService(index)}
+                        className="remove-service-btn"
+                        disabled={loading}
+                        aria-label={`Remove service ${index + 1}`}
+                      >
+                        <X size={20} />
+                      </button>
                     )}
                   </div>
 
-                  <div className="form-group">
-                    <label>Category*</label>
-                    <select
-                      value={service.category}
-                      onChange={(e) => handleServiceChange(index, 'category', e.target.value)}
-                      className={errors[`service${index}_category`] ? 'error' : ''}
-                    >
-                      <option value="">Select Category</option>
-                      {serviceCategories.map(category => (
-                        <option key={category} value={category}>{category}</option>
-                      ))}
-                    </select>
-                    {errors[`service${index}_category`] && (
-                      <span className="error-text">{errors[`service${index}_category`]}</span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label>Service Description*</label>
-                  <textarea
-                    value={service.description}
-                    onChange={(e) => handleServiceChange(index, 'description', e.target.value)}
-                    placeholder="Describe your service in detail..."
-                    rows={4}
-                    className={errors[`service${index}_description`] ? 'error' : ''}
-                  />
-                  {errors[`service${index}_description`] && (
-                    <span className="error-text">{errors[`service${index}_description`]}</span>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label>Event Types* (Select all that apply)</label>
-                  <div className={`event-types-grid ${errors[`service${index}_eventTypes`] ? 'error' : ''}`}>
-                    {eventTypes.map(eventType => (
-                      <label key={eventType} className="checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={service.eventTypes.includes(eventType)}
-                          onChange={() => handleEventTypeToggle(index, eventType)}
-                        />
-                        <span>{eventType}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {errors[`service${index}_eventTypes`] && (
-                    <span className="error-text">{errors[`service${index}_eventTypes`]}</span>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label>Budget Range*</label>
-                  <div className="budget-range">
-                    <div className="budget-input">
-                      <IndianRupee size={20} />
+                  <div className="service-form-grid">
+                    <div className="form-group">
+                      <label htmlFor={`service-title-${index}`}>Service Title*</label>
                       <input
-                        type="number"
-                        value={service.budgetRange.min}
-                        onChange={(e) => handleServiceChange(index, 'budgetRange.min', e.target.value)}
-                        placeholder="Min amount"
-                        min="0"
+                        id={`service-title-${index}`}
+                        type="text"
+                        value={service.title}
+                        onChange={(e) => handleServiceChange(index, 'title', e.target.value)}
+                        placeholder="e.g., Wedding Photography"
+                        className={errors[`service${index}_title`] ? 'error' : ''}
+                        disabled={loading}
+                        required
                       />
+                      {errors[`service${index}_title`] && (
+                        <span className="error-text">{errors[`service${index}_title`]}</span>
+                      )}
                     </div>
-                    <span>to</span>
-                    <div className="budget-input">
-                      <IndianRupee size={20} />
-                      <input
-                        type="number"
-                        value={service.budgetRange.max}
-                        onChange={(e) => handleServiceChange(index, 'budgetRange.max', e.target.value)}
-                        placeholder="Max amount"
-                        min="0"
+
+                    <div className="form-group">
+                      <label htmlFor={`service-category-${index}`}>Category*</label>
+                      <select
+                        id={`service-category-${index}`}
+                        value={service.category}
+                        onChange={(e) => handleServiceChange(index, 'category', e.target.value)}
+                        className={errors[`service${index}_category`] ? 'error' : ''}
+                        disabled={loading}
+                        required
+                      >
+                        <option value="">Select Category</option>
+                        {serviceCategories.map(category => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
+                      {errors[`service${index}_category`] && (
+                        <span className="error-text">{errors[`service${index}_category`]}</span>
+                      )}
+                    </div>
+
+                    <div className="form-group full-width">
+                      <label htmlFor={`service-description-${index}`}>Service Description*</label>
+                      <textarea
+                        id={`service-description-${index}`}
+                        value={service.description}
+                        onChange={(e) => handleServiceChange(index, 'description', e.target.value)}
+                        placeholder="Describe your service in detail, including what's included and your unique approach..."
+                        rows={4}
+                        className={errors[`service${index}_description`] ? 'error' : ''}
+                        disabled={loading}
+                        required
                       />
+                      {errors[`service${index}_description`] && (
+                        <span className="error-text">{errors[`service${index}_description`]}</span>
+                      )}
+                    </div>
+
+                    <div className="form-group full-width">
+                      <fieldset disabled={loading}>
+                        <legend>Event Types* (Select all that apply)</legend>
+                        <div className={`event-types-grid ${errors[`service${index}_eventTypes`] ? 'error' : ''}`}>
+                          {eventTypes.map(eventType => (
+                            <label key={eventType} className="checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={service.eventTypes.includes(eventType)}
+                                onChange={() => handleEventTypeToggle(index, eventType)}
+                                disabled={loading}
+                              />
+                              <span className="checkbox-text">{eventType}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                      {errors[`service${index}_eventTypes`] && (
+                        <span className="error-text">{errors[`service${index}_eventTypes`]}</span>
+                      )}
+                    </div>
+
+                    <div className="form-group full-width">
+                      <label>Budget Range* (in INR)</label>
+                      <div className="budget-range">
+                        <div className="budget-input">
+                          <label htmlFor={`budget-min-${index}`} className="budget-label">Minimum</label>
+                          <div className="input-with-icon">
+                            <IndianRupee size={20} className="currency-icon" />
+                            <input
+                              id={`budget-min-${index}`}
+                              type="number"
+                              value={service.budgetRange.min}
+                              onChange={(e) => handleServiceChange(index, 'budgetRange.min', e.target.value)}
+                              placeholder="5000"
+                              min="0"
+                              disabled={loading}
+                              required
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="budget-separator">
+                          <span>to</span>
+                        </div>
+                        
+                        <div className="budget-input">
+                          <label htmlFor={`budget-max-${index}`} className="budget-label">Maximum</label>
+                          <div className="input-with-icon">
+                            <IndianRupee size={20} className="currency-icon" />
+                            <input
+                              id={`budget-max-${index}`}
+                              type="number"
+                              value={service.budgetRange.max}
+                              onChange={(e) => handleServiceChange(index, 'budgetRange.max', e.target.value)}
+                              placeholder="50000"
+                              min="0"
+                              disabled={loading}
+                              required
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      {errors[`service${index}_budget`] && (
+                        <span className="error-text">{errors[`service${index}_budget`]}</span>
+                      )}
                     </div>
                   </div>
-                  {errors[`service${index}_budget`] && (
-                    <span className="error-text">{errors[`service${index}_budget`]}</span>
-                  )}
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
 
             <button
               type="button"
               onClick={addService}
               className="add-service-btn"
+              disabled={loading}
             >
               <Plus size={20} />
               <span>Add Another Service</span>
@@ -519,22 +531,25 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
           {/* Bank Details Section */}
           <div className="form-section">
             <div className="section-header">
-              <h3>
+              <h2>
                 <CreditCard size={24} />
                 Bank Account Details
-              </h3>
-              <p>For receiving payments from clients</p>
+              </h2>
+              <p>Secure payment processing for your bookings</p>
             </div>
 
-            <div className="form-row">
+            <div className="bank-form-grid">
               <div className="form-group">
-                <label>Account Holder Name*</label>
+                <label htmlFor="account-holder-name">Account Holder Name*</label>
                 <input
+                  id="account-holder-name"
                   type="text"
                   value={bankDetails.accountHolderName}
                   onChange={(e) => handleBankDetailsChange('accountHolderName', e.target.value)}
-                  placeholder="As per bank records"
+                  placeholder="Full name as per bank records"
                   className={errors.accountHolderName ? 'error' : ''}
+                  disabled={loading}
+                  required
                 />
                 {errors.accountHolderName && (
                   <span className="error-text">{errors.accountHolderName}</span>
@@ -542,29 +557,33 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
               </div>
 
               <div className="form-group">
-                <label>Account Number*</label>
+                <label htmlFor="account-number">Account Number*</label>
                 <input
+                  id="account-number"
                   type="text"
                   value={bankDetails.accountNumber}
                   onChange={(e) => handleBankDetailsChange('accountNumber', e.target.value)}
-                  placeholder="Enter account number"
+                  placeholder="Enter your account number"
                   className={errors.accountNumber ? 'error' : ''}
+                  disabled={loading}
+                  required
                 />
                 {errors.accountNumber && (
                   <span className="error-text">{errors.accountNumber}</span>
                 )}
               </div>
-            </div>
 
-            <div className="form-row">
               <div className="form-group">
-                <label>IFSC Code*</label>
+                <label htmlFor="ifsc-code">IFSC Code*</label>
                 <input
+                  id="ifsc-code"
                   type="text"
                   value={bankDetails.ifscCode}
                   onChange={(e) => handleBankDetailsChange('ifscCode', e.target.value.toUpperCase())}
                   placeholder="e.g., SBIN0001234"
                   className={errors.ifscCode ? 'error' : ''}
+                  disabled={loading}
+                  required
                 />
                 {errors.ifscCode && (
                   <span className="error-text">{errors.ifscCode}</span>
@@ -572,46 +591,51 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
               </div>
 
               <div className="form-group">
-                <label>Bank Name*</label>
+                <label htmlFor="bank-name">Bank Name*</label>
                 <input
+                  id="bank-name"
                   type="text"
                   value={bankDetails.bankName}
                   onChange={(e) => handleBankDetailsChange('bankName', e.target.value)}
                   placeholder="e.g., State Bank of India"
                   className={errors.bankName ? 'error' : ''}
+                  disabled={loading}
+                  required
                 />
                 {errors.bankName && (
                   <span className="error-text">{errors.bankName}</span>
                 )}
               </div>
-            </div>
 
-            <div className="form-group">
-              <label>Branch</label>
-              <input
-                type="text"
-                value={bankDetails.branch}
-                onChange={(e) => handleBankDetailsChange('branch', e.target.value)}
-                placeholder="Branch name (optional)"
-              />
+              <div className="form-group full-width">
+                <label htmlFor="branch-name">Branch Name</label>
+                <input
+                  id="branch-name"
+                  type="text"
+                  value={bankDetails.branch}
+                  onChange={(e) => handleBankDetailsChange('branch', e.target.value)}
+                  placeholder="Branch name (optional)"
+                  disabled={loading}
+                />
+              </div>
             </div>
           </div>
 
-          {/* Important Information */}
-          <div className="form-section">
+          {/* Info Section */}
+          <div className="info-section">
             <div className="info-box">
-              <h4>📋 Important Information:</h4>
+              <h3>📋 Important Information</h3>
               <ul>
-                <li>Your application will be reviewed by our team within 2-3 business days</li>
-                <li>You will receive email notifications about your application status</li>
-                <li>Once approved, you can start accepting bookings through our platform</li>
-                <li>Bank details are encrypted and stored securely</li>
-                <li>You can update your services and bank details later from your dashboard</li>
+                <li>Your application will be reviewed within 2-3 business days</li>
+                <li>You'll receive email notifications about your status</li>
+                <li>Once approved, you can start accepting bookings</li>
+                <li>Bank details are encrypted and secure</li>
+                <li>You can update information later from your dashboard</li>
               </ul>
             </div>
           </div>
 
-          {/* Error Message */}
+          {/* Error Display */}
           {errors.submit && (
             <div className="error-banner">
               <AlertCircle size={20} />
@@ -633,7 +657,7 @@ const VendorRegistrationStep3 = ({ vendorId: propVendorId, onComplete, onBack })
 
             <button 
               type="submit" 
-              className="complete-btn"
+              className="submit-btn"
               disabled={loading || !finalVendorId}
             >
               {loading ? (
