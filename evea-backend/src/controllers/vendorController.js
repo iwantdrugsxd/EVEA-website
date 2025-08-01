@@ -3,7 +3,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Vendor = require('../models/Vendor');
 const VendorService = require('../models/VendorService');
-
+const { google } = require('googleapis');
+const path = require('path');
+const fs = require('fs');
 // ==================== REGISTRATION STEP 1 ====================
 exports.registerVendorStep1 = async (req, res) => {
   try {
@@ -147,6 +149,62 @@ exports.registerVendorStep1 = async (req, res) => {
 
 // ==================== REGISTRATION STEP 2 - DOCUMENTS ====================
 // ==================== REGISTRATION STEP 2 - DOCUMENTS (FIXED) ====================
+const initializeDrive = () => {
+  try {
+    const auth = new google.auth.GoogleAuth({
+      keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE, // Path to your service account JSON file
+      scopes: ['https://www.googleapis.com/auth/drive.file'],
+    });
+
+    return google.drive({ version: 'v3', auth });
+  } catch (error) {
+    console.error('Failed to initialize Google Drive:', error);
+    throw new Error('Google Drive initialization failed');
+  }
+};
+
+// Upload file to Google Drive
+const uploadToGoogleDrive = async (file, fileName, folderId = null) => {
+  try {
+    const drive = initializeDrive();
+    
+    const fileMetadata = {
+      name: fileName,
+      parents: folderId ? [folderId] : undefined, // Optional: specify folder
+    };
+
+    const media = {
+      mimeType: file.mimetype,
+      body: fs.createReadStream(file.path), // Use file.path for multer temporary files
+    };
+
+    const response = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id,name,webViewLink,webContentLink',
+    });
+
+    // Make the file publicly viewable (adjust permissions as needed)
+    await drive.permissions.create({
+      fileId: response.data.id,
+      resource: {
+        role: 'reader',
+        type: 'anyone',
+      },
+    });
+
+    return {
+      fileId: response.data.id,
+      fileName: response.data.name,
+      webViewLink: response.data.webViewLink,
+      downloadUrl: response.data.webContentLink,
+    };
+  } catch (error) {
+    console.error('Google Drive upload error:', error);
+    throw new Error(`Failed to upload ${fileName} to Google Drive`);
+  }
+};
+
 exports.uploadDocuments = async (req, res) => {
   try {
     const { vendorId } = req.params;
@@ -208,13 +266,14 @@ exports.uploadDocuments = async (req, res) => {
       identityProof: 5 * 1024 * 1024        // 5MB
     };
 
-    // FIXED: Initialize documents properly
+    // Initialize documents properly
     if (!vendor.verification.documents) {
       vendor.verification.documents = {};
     }
 
     // Process each uploaded file
     const uploadResults = [];
+    const uploadPromises = [];
 
     for (const [docType, fileArray] of Object.entries(files)) {
       if (fileArray && fileArray[0]) {
@@ -237,29 +296,71 @@ exports.uploadDocuments = async (req, res) => {
           });
         }
 
-        // Create document info object
-        const documentInfo = {
-          originalName: file.originalname,
-          mimeType: file.mimetype,
-          size: file.size,
-          uploadedAt: new Date(),
-          verificationStatus: 'pending',
-          fileId: `mock_${docType}_${Date.now()}`,
-          downloadUrl: `https://mock-storage.com/${docType}/${Date.now()}`
-        };
+        // Create unique filename
+        const timestamp = Date.now();
+        const extension = path.extname(file.originalname);
+        const uniqueFileName = `${vendorId}_${docType}_${timestamp}${extension}`;
 
-        // FIXED: Direct assignment instead of spread operator
-        vendor.verification.documents[docType] = documentInfo;
-        
-        uploadResults.push({
-          documentType: docType,
-          fileName: file.originalname,
-          size: file.size,
-          status: 'uploaded'
-        });
+        // Add upload promise
+        const uploadPromise = uploadToGoogleDrive(file, uniqueFileName, process.env.GOOGLE_DRIVE_FOLDER_ID)
+          .then((driveResult) => {
+            // Create document info object with actual Google Drive data
+            const documentInfo = {
+              originalName: file.originalname,
+              mimeType: file.mimetype,
+              size: file.size,
+              uploadedAt: new Date(),
+              verificationStatus: 'pending',
+              fileId: driveResult.fileId, // Actual Google Drive file ID
+              downloadUrl: driveResult.downloadUrl, // Actual Google Drive download URL
+              webViewLink: driveResult.webViewLink // Google Drive view link
+            };
 
-        console.log(`✅ Document processed: ${docType} - ${file.originalname}`);
+            // Store document info
+            vendor.verification.documents[docType] = documentInfo;
+            
+            uploadResults.push({
+              documentType: docType,
+              fileName: file.originalname,
+              size: file.size,
+              status: 'uploaded',
+              fileId: driveResult.fileId
+            });
+
+            console.log(`✅ Document uploaded to Google Drive: ${docType} - ${file.originalname} (ID: ${driveResult.fileId})`);
+            
+            // Clean up temporary file
+            if (file.path && fs.existsSync(file.path)) {
+              fs.unlinkSync(file.path);
+            }
+            
+            return { docType, success: true };
+          })
+          .catch((error) => {
+            console.error(`❌ Failed to upload ${docType}:`, error);
+            
+            // Clean up temporary file on error
+            if (file.path && fs.existsSync(file.path)) {
+              fs.unlinkSync(file.path);
+            }
+            
+            throw new Error(`Failed to upload ${documentTypes[docType]}: ${error.message}`);
+          });
+
+        uploadPromises.push(uploadPromise);
       }
+    }
+
+    // Wait for all uploads to complete
+    try {
+      await Promise.all(uploadPromises);
+    } catch (uploadError) {
+      return res.status(500).json({
+        success: false,
+        message: uploadError.message,
+        timestamp: new Date().toISOString(),
+        vendorId: vendorId
+      });
     }
 
     // Update vendor registration progress
@@ -267,16 +368,16 @@ exports.uploadDocuments = async (req, res) => {
     vendor.profileCompletion = 60;
     vendor.updatedAt = new Date();
     
-    // FIXED: Mark the documents field as modified for Mongoose
+    // Mark the documents field as modified for Mongoose
     vendor.markModified('verification.documents');
     
     await vendor.save();
 
-    console.log('✅ Document upload completed successfully');
+    console.log('✅ Document upload to Google Drive completed successfully');
 
     res.json({
       success: true,
-      message: `Successfully uploaded ${uploadResults.length} document(s). Please proceed to Step 3.`,
+      message: `Successfully uploaded ${uploadResults.length} document(s) to Google Drive. Please proceed to Step 3.`,
       data: {
         vendorId: vendor._id,
         uploadedDocuments: uploadResults,
@@ -289,12 +390,29 @@ exports.uploadDocuments = async (req, res) => {
   } catch (error) {
     console.error('❌ Document upload error:', error);
     
+    // Clean up any temporary files on error
+    if (req.files) {
+      Object.values(req.files).forEach(fileArray => {
+        if (fileArray && fileArray[0] && fileArray[0].path) {
+          try {
+            if (fs.existsSync(fileArray[0].path)) {
+              fs.unlinkSync(fileArray[0].path);
+            }
+          } catch (cleanupError) {
+            console.error('File cleanup error:', cleanupError);
+          }
+        }
+      });
+    }
+    
     let errorMessage = 'Document upload failed. Please try again.';
     
     if (error.message.includes('file too large')) {
       errorMessage = 'One or more files are too large. Please compress your files and try again.';
     } else if (error.message.includes('invalid file')) {
       errorMessage = 'Invalid file format detected. Please ensure all files are PDF, JPG, or PNG.';
+    } else if (error.message.includes('Google Drive')) {
+      errorMessage = 'Failed to upload to cloud storage. Please try again.';
     } else if (error.message.includes('Map') || error.message.includes('$__parent')) {
       errorMessage = 'Document processing error. Please try again.';
     }
