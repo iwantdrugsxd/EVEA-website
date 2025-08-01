@@ -87,24 +87,31 @@ const vendorSchema = new mongoose.Schema({
       unique: true,
       sparse: true // This is critical - allows multiple null values
     },
-    documents: {
-      type: Map,
-      of: {
-        originalName: String,
-        mimeType: String,
-        size: Number,
-        uploadedAt: Date,
-        verificationStatus: {
-          type: String,
-          enum: ['pending', 'verified', 'rejected'],
-          default: 'pending'
-        },
-        verifiedAt: Date,
-        verifiedBy: mongoose.Schema.Types.ObjectId,
-        rejectionReason: String,
-        fileId: String,
-        downloadUrl: String
-      }
+  
+  documents: {
+    type: Map,
+    of: {
+      originalName: String,
+      storedName: String,
+      mimeType: String,
+      size: Number,
+      uploadedAt: Date,
+      verificationStatus: {
+        type: String,
+        enum: ['pending', 'verified', 'rejected'],
+        default: 'pending'
+      },
+      verifiedAt: Date,
+      verifiedBy: mongoose.Schema.Types.ObjectId,
+      rejectionReason: String,
+      // Google Drive specific fields
+      fileId: String,
+      webViewLink: String,
+      webContentLink: String,
+      driveUrl: String,
+      parentFolderId: String,
+      folderName: String
+    }
     },
     bankDetails: {
       accountHolderName: { type: String, trim: true },
