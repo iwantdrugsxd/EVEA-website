@@ -1,112 +1,119 @@
-// evea-backend/src/middleware/auth.js
+// evea-backend/src/middleware/auth.js - FIXED VERSION
 const jwt = require('jsonwebtoken');
 const Vendor = require('../models/Vendor');
 
-// Vendor authentication middleware
+// Vendor Authentication Middleware
 const vendorAuth = async (req, res, next) => {
   try {
     console.log('🔐 Vendor auth middleware triggered');
     
+    // Get token from header
     const authHeader = req.header('Authorization');
-    if (!authHeader) {
-      console.log('❌ No Authorization header found');
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.'
-      });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    if (!token) {
-      console.log('❌ No token in Authorization header');
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. Invalid token format.'
-      });
-    }
-
-    console.log('🔍 Verifying token...');
+    console.log('📋 Auth header:', authHeader ? 'Present' : 'Missing');
     
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided. Access denied.'
+      });
+    }
+
+    // Extract token (format: "Bearer TOKEN")
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+    
+    if (!token || token === 'null' || token === 'undefined') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token format. Access denied.'
+      });
+    }
+
+    console.log('🔑 Token extracted:', token.substring(0, 20) + '...');
+
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('✅ Token verified for vendor ID:', decoded.id);
 
     // Get vendor from database
-    const vendor = await Vendor.findById(decoded.id).select('-password');
+    const vendor = await Vendor.findById(decoded.id).select('-authentication.password');
+    
     if (!vendor) {
-      console.log('❌ Vendor not found for ID:', decoded.id);
       return res.status(401).json({
         success: false,
-        message: 'Access denied. Vendor not found.'
+        message: 'Vendor not found. Token invalid.'
       });
     }
 
-    // Add vendor to request object
+    console.log('👤 Vendor authenticated:', vendor.businessInfo.businessName);
+
+    // Add vendor info to request
     req.vendor = {
       id: vendor._id,
       businessName: vendor.businessInfo.businessName,
-      email: vendor.businessInfo.email,
-      registrationStatus: vendor.registrationStatus
+      email: vendor.contactInfo.email,
+      registrationStatus: vendor.registrationStatus,
+      isActive: vendor.isActive
     };
 
-    console.log('✅ Vendor authenticated:', vendor.businessInfo.businessName);
     next();
 
   } catch (error) {
-    console.error('❌ Vendor auth error:', error.message);
+    console.error('❌ Auth middleware error:', error.message);
     
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({
         success: false,
-        message: 'Access denied. Invalid token.'
+        message: 'Invalid token. Access denied.'
       });
     } else if (error.name === 'TokenExpiredError') {
       return res.status(401).json({
         success: false,
-        message: 'Access denied. Token expired.'
+        message: 'Token expired. Please login again.'
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        message: 'Authentication failed. Please try again.'
       });
     }
-
-    res.status(500).json({
-      success: false,
-      message: 'Authentication error',
-      error: error.message
-    });
   }
 };
 
-// Admin authentication middleware
+// Admin Authentication Middleware (placeholder)
 const adminAuth = async (req, res, next) => {
   try {
-    console.log('👑 Admin auth middleware triggered');
+    console.log('🔐 Admin auth middleware triggered');
     
+    // Get token from header
     const authHeader = req.header('Authorization');
+    
     if (!authHeader) {
       return res.status(401).json({
         success: false,
-        message: 'Access denied. No token provided.'
+        message: 'No admin token provided. Access denied.'
       });
     }
 
-    const token = authHeader.replace('Bearer ', '');
+    // Extract token
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+    
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'Access denied. Invalid token format.'
+        message: 'Invalid admin token format. Access denied.'
       });
     }
 
-    // Verify admin token (you might have a separate Admin model)
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
+    // Verify admin token (implement admin logic here)
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    // For now, we'll check if it's a special admin token or vendor with admin privileges
-    // You can modify this based on your admin system
+    // For now, mock admin validation
+    // In real implementation, check if user is admin
     req.admin = {
       id: decoded.id,
       role: 'admin'
     };
 
-    console.log('✅ Admin authenticated');
     next();
 
   } catch (error) {
@@ -115,40 +122,57 @@ const adminAuth = async (req, res, next) => {
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({
         success: false,
-        message: 'Access denied. Invalid admin token.'
+        message: 'Invalid admin token. Access denied.'
       });
     } else if (error.name === 'TokenExpiredError') {
       return res.status(401).json({
         success: false,
-        message: 'Access denied. Admin token expired.'
+        message: 'Admin token expired. Please login again.'
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        message: 'Admin authentication failed.'
       });
     }
-
-    res.status(500).json({
-      success: false,
-      message: 'Admin authentication error',
-      error: error.message
-    });
   }
 };
 
-// Optional middleware to check if vendor registration is complete
-const requireCompleteRegistration = (req, res, next) => {
-  if (req.vendor && req.vendor.registrationStatus !== 'approved') {
-    return res.status(403).json({
-      success: false,
-      message: 'Complete registration required',
-      data: {
-        registrationStatus: req.vendor.registrationStatus,
-        redirectTo: '/vendor/registration'
+// Optional Authentication Middleware (for public routes that can benefit from auth data)
+const optionalAuth = async (req, res, next) => {
+  try {
+    const authHeader = req.header('Authorization');
+    
+    if (authHeader) {
+      const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+      
+      if (token && token !== 'null' && token !== 'undefined') {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const vendor = await Vendor.findById(decoded.id).select('-authentication.password');
+        
+        if (vendor) {
+          req.vendor = {
+            id: vendor._id,
+            businessName: vendor.businessInfo.businessName,
+            email: vendor.contactInfo.email,
+            registrationStatus: vendor.registrationStatus,
+            isActive: vendor.isActive
+          };
+        }
       }
-    });
+    }
+    
+    // Continue regardless of auth status
+    next();
+    
+  } catch (error) {
+    // Ignore auth errors for optional auth
+    next();
   }
-  next();
 };
 
 module.exports = {
   vendorAuth,
   adminAuth,
-  requireCompleteRegistration
+  optionalAuth
 };

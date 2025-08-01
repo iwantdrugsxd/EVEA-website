@@ -1,6 +1,7 @@
-// evea-frontend/src/components/VendorRegistration/VendorRegistrationStep2.jsx
+// VendorRegistrationStep2.jsx - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useLocation, useParams } from 'react-router-dom';
 import { 
   ArrowRight, 
   ArrowLeft, 
@@ -14,8 +15,10 @@ import {
 } from 'lucide-react';
 import './VendorRegistrationStep2.css';
 
-const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
+const VendorRegistrationStep2 = ({ vendorId: propVendorId, onNext, onBack }) => {
   const { registerStep2 } = useAuth();
+  const location = useLocation();
+  const { vendorId: paramVendorId } = useParams();
   
   const [files, setFiles] = useState({});
   const [uploadProgress, setUploadProgress] = useState({});
@@ -23,35 +26,69 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Get vendor ID with multiple fallback options
+  // FIXED: Enhanced vendor ID resolution with better fallback chain
   const getVendorId = () => {
-    const id = vendorId || 
-                localStorage.getItem('registrationVendorId') || 
-                sessionStorage.getItem('registrationVendorId');
+    // Priority order: URL params > component props > location state > localStorage > sessionStorage
+    const sources = {
+      urlParam: paramVendorId,
+      componentProp: propVendorId,
+      locationState: location.state?.vendorId,
+      localStorage: localStorage.getItem('registrationVendorId'),
+      sessionStorage: sessionStorage.getItem('registrationVendorId'),
+      // Check for vendor data object in localStorage
+      vendorDataId: (() => {
+        try {
+          const vendorData = JSON.parse(localStorage.getItem('vendorRegistrationData') || '{}');
+          return vendorData.vendorId || vendorData._id;
+        } catch (e) {
+          return null;
+        }
+      })()
+    };
     
-    console.log('🔍 Getting vendor ID:', {
-      fromProp: vendorId,
-      fromLocalStorage: localStorage.getItem('registrationVendorId'),
-      fromSessionStorage: sessionStorage.getItem('registrationVendorId'),
-      finalId: id
-    });
+    console.log('🔍 Vendor ID Resolution Sources:', sources);
     
-    return id;
+    // Return first valid ID found
+    const finalId = sources.urlParam || 
+                   sources.componentProp || 
+                   sources.locationState || 
+                   sources.localStorage || 
+                   sources.sessionStorage ||
+                   sources.vendorDataId;
+    
+    console.log('✅ Final vendor ID selected:', finalId);
+    return finalId;
   };
   
   const finalVendorId = getVendorId();
 
-  // Show error if no vendor ID found
+  // Enhanced error handling and ID persistence
   useEffect(() => {
     if (!finalVendorId) {
-      console.error('❌ No vendor ID found in Step 2!');
+      console.error('❌ CRITICAL: No vendor ID found anywhere!');
+      
+      // Try to extract from current URL if it's in the path
+      const pathParts = window.location.pathname.split('/');
+      const possibleId = pathParts[pathParts.length - 1];
+      
+      if (possibleId && possibleId.length === 24) { // MongoDB ObjectId length
+        console.log('🔄 Found potential vendor ID in URL path:', possibleId);
+        localStorage.setItem('registrationVendorId', possibleId);
+        window.location.reload(); // Reload to pick up the ID
+        return;
+      }
+      
       setErrors({ 
-        submit: 'Session expired. Please start registration again from Step 1.' 
+        submit: 'Registration session lost. Please restart from Step 1.' 
       });
+    } else {
+      // Ensure the ID is stored in localStorage for future steps
+      localStorage.setItem('registrationVendorId', finalVendorId);
+      console.log('💾 Vendor ID saved to localStorage:', finalVendorId);
     }
   }, [finalVendorId]);
 
-  // Document requirements configuration
+  // Document requirements configuration - matches your backend expectations
   const documentRequirements = {
     businessRegistration: {
       title: 'Business Registration Certificate',
@@ -166,6 +203,12 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
     const newErrors = {};
     let hasErrors = false;
 
+    // FIXED: Always check vendor ID first
+    if (!finalVendorId) {
+      newErrors.submit = 'Vendor ID is missing. Please restart registration.';
+      hasErrors = true;
+    }
+
     // Check required documents
     Object.entries(documentRequirements).forEach(([docType, requirement]) => {
       if (requirement.required && !files[docType]) {
@@ -185,175 +228,64 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
     console.log('📁 Files to upload:', Object.keys(files));
     console.log('👥 Using vendor ID:', finalVendorId);
     
-    // CRITICAL: Check vendor ID first
-    if (!finalVendorId) {
-      setErrors({ 
-        submit: 'No vendor ID found. Please start registration from Step 1.' 
-      });
+    // FIXED: Better validation and error handling
+    if (!validateForm()) {
+      console.error('❌ Form validation failed');
       return;
     }
-    
-    if (!validateForm()) {
-      console.log('❌ Form validation failed');
+
+    if (!finalVendorId) {
+      setErrors({ 
+        submit: 'Vendor ID is missing. Please restart registration from Step 1.' 
+      });
       return;
     }
 
     if (Object.keys(files).length === 0) {
-      setErrors({ submit: 'Please upload at least one document' });
+      setErrors({ 
+        submit: 'Please upload at least one document before continuing.' 
+      });
       return;
     }
 
     setLoading(true);
     setErrors({});
-    setSuccessMessage('');
-
+    
     try {
-      console.log('🚀 Calling registerStep2 with:', finalVendorId);
+      console.log('🚀 Submitting documents to backend...');
       
       const result = await registerStep2(finalVendorId, files);
       
-      console.log('📡 registerStep2 result:', result);
+      console.log('📡 Upload result:', result);
       
-      if (result && result.success) {
-        console.log('✅ Documents uploaded successfully');
-        setSuccessMessage('Documents uploaded successfully! Moving to final step...');
+      if (result.success) {
+        setSuccessMessage('Documents uploaded successfully!');
+        
+        // Store progress
+        localStorage.setItem('registrationStep', '2');
         
         setTimeout(() => {
-          if (onNext && typeof onNext === 'function') {
-            console.log('🔄 Moving to Step 3');
-            onNext();
-          } else {
-            console.error('⚠️ onNext function not provided');
-            // Fallback navigation
-            window.location.href = '/vendor/register?step=3';
+          console.log('✅ Moving to Step 3...');
+          if (onNext) {
+            onNext(finalVendorId);
           }
         }, 1500);
         
       } else {
-        const errorMessage = result?.message || 'Document upload failed';
-        console.log('❌ Document upload failed:', errorMessage);
-        setErrors({ submit: errorMessage });
+        throw new Error(result.message || 'Upload failed');
       }
       
     } catch (error) {
-      console.error('❌ Document upload error:', error);
-      setErrors({ submit: error.message || 'Upload failed. Please try again.' });
+      console.error('❌ Upload error:', error);
+      setErrors({ 
+        submit: error.message || 'Upload failed. Please try again.' 
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const FileUploadArea = ({ docType, requirement }) => {
-    const file = files[docType];
-    const error = errors[docType];
-    const progress = uploadProgress[docType];
-    const isUploaded = file && progress === 100;
-
-    return (
-      <div className={`file-upload-area ${error ? 'error' : ''} ${isUploaded ? 'uploaded' : ''}`}>
-        <div className="upload-header">
-          <div className="upload-info">
-            <h4 className="upload-title">
-              {requirement.title}
-              {requirement.required && <span className="required">*</span>}
-            </h4>
-            <p className="upload-description">{requirement.description}</p>
-            <p className="upload-requirements">
-              Accepted: {requirement.allowedTypes.join(', ').toUpperCase()} | 
-              Max size: {requirement.maxSize}MB
-            </p>
-          </div>
-        </div>
-
-        {!file ? (
-          <div className="upload-zone">
-            <input
-              type="file"
-              id={`file-${docType}`}
-              accept={requirement.allowedTypes.map(type => `.${type}`).join(',')}
-              onChange={(e) => {
-                const selectedFile = e.target.files[0];
-                if (selectedFile) {
-                  handleFileUpload(docType, selectedFile);
-                }
-              }}
-              className="file-input"
-              disabled={loading}
-            />
-            <label htmlFor={`file-${docType}`} className="upload-label">
-              <Upload size={32} />
-              <span className="upload-text">
-                <strong>Click to upload</strong> or drag and drop
-              </span>
-            </label>
-          </div>
-        ) : (
-          <div className="uploaded-file">
-            <div className="file-info">
-              <FileText size={24} />
-              <div className="file-details">
-                <span className="file-name">{file.name}</span>
-                <span className="file-size">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
-                </span>
-              </div>
-            </div>
-
-            {progress < 100 ? (
-              <div className="upload-progress">
-                <div className="progress-bar">
-                  <div 
-                    className="progress-fill" 
-                    style={{ width: `${progress}%` }}
-                  ></div>
-                </div>
-                <span className="progress-text">{progress}%</span>
-              </div>
-            ) : (
-              <div className="file-actions">
-                <button
-                  type="button"
-                  className="action-btn view-btn"
-                  onClick={() => {
-                    // Preview file functionality
-                    const url = URL.createObjectURL(file);
-                    window.open(url, '_blank');
-                  }}
-                  title="Preview file"
-                >
-                  <Eye size={16} />
-                </button>
-                <button
-                  type="button"
-                  className="action-btn remove-btn"
-                  onClick={() => handleFileRemove(docType)}
-                  title="Remove file"
-                  disabled={loading}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            )}
-
-            {isUploaded && (
-              <div className="upload-success">
-                <CheckCircle size={20} />
-                <span>Ready to upload</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {error && (
-          <div className="upload-error">
-            <AlertCircle size={16} />
-            <span>{error}</span>
-          </div>
-        )}
-      </div>
-    );
-  };
-
+  // Helper functions
   const getUploadedCount = () => {
     return Object.keys(files).length;
   };
@@ -362,23 +294,113 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
     return Object.values(documentRequirements).filter(req => req.required).length;
   };
 
+  // File Upload Area Component
+  const FileUploadArea = ({ docType, requirement }) => {
+    const hasFile = files[docType];
+    const hasError = errors[docType];
+    const progress = uploadProgress[docType];
+
+    return (
+      <div className={`file-upload-area ${hasError ? 'error' : ''}`}>
+        <div className="upload-header">
+          <h4>{requirement.title}</h4>
+          <span className={`requirement-badge ${requirement.required ? 'required' : 'optional'}`}>
+            {requirement.required ? 'Required' : 'Optional'}
+          </span>
+        </div>
+        
+        <p className="upload-description">{requirement.description}</p>
+        
+        {!hasFile ? (
+          <label className="upload-label">
+            <input
+              type="file"
+              accept={requirement.allowedTypes.map(type => 
+                type === 'pdf' ? '.pdf' : `.${type}`
+              ).join(',')}
+              onChange={(e) => {
+                const file = e.target.files[0];
+                if (file) handleFileUpload(docType, file);
+              }}
+              className="file-input"
+            />
+            <div className="upload-content">
+              <Upload size={32} />
+              <span>Click to upload or drag and drop</span>
+              <small>
+                Max {requirement.maxSize}MB • {requirement.allowedTypes.join(', ').toUpperCase()}
+              </small>
+            </div>
+          </label>
+        ) : (
+          <div className="uploaded-file">
+            <div className="file-info">
+              <FileText size={24} />
+              <div className="file-details">
+                <span className="file-name">{files[docType].name}</span>
+                <span className="file-size">
+                  {(files[docType].size / (1024 * 1024)).toFixed(2)} MB
+                </span>
+              </div>
+            </div>
+            
+            {progress < 100 ? (
+              <div className="upload-progress">
+                <div className="progress-bar">
+                  <div 
+                    className="progress-fill" 
+                    style={{ width: `${progress}%` }}
+                  ></div>
+                </div>
+                <span>{progress}%</span>
+              </div>
+            ) : (
+              <div className="file-actions">
+                <CheckCircle size={20} className="success-icon" />
+                <button
+                  type="button"
+                  onClick={() => handleFileRemove(docType)}
+                  className="remove-btn"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {hasError && (
+          <div className="error-message">
+            <AlertCircle size={16} />
+            <span>{hasError}</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="vendor-registration-step2">
       <div className="registration-container">
-        {/* Debug info - remove in production */}
+        {/* FIXED: Enhanced debug info */}
         {process.env.NODE_ENV === 'development' && (
           <div style={{ 
-            background: '#f0f0f0', 
-            padding: '10px', 
+            background: finalVendorId ? '#e6fffa' : '#fef2f2', 
+            padding: '15px', 
             margin: '10px 0', 
-            borderRadius: '5px',
-            fontSize: '12px',
-            fontFamily: 'monospace'
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontFamily: 'monospace',
+            border: `2px solid ${finalVendorId ? '#38b2ac' : '#f56565'}`
           }}>
-            <strong>Debug Info:</strong><br/>
-            Vendor ID Prop: {vendorId || 'undefined'}<br/>
+            <strong>🔧 Debug Panel:</strong><br/>
+            URL Param ID: {paramVendorId || 'undefined'}<br/>
+            Component Prop ID: {propVendorId || 'undefined'}<br/>
+            Location State ID: {location.state?.vendorId || 'undefined'}<br/>
             localStorage ID: {localStorage.getItem('registrationVendorId') || 'undefined'}<br/>
-            Final ID: {finalVendorId || 'undefined'}
+            sessionStorage ID: {sessionStorage.getItem('registrationVendorId') || 'undefined'}<br/>
+            <strong>Final Selected ID: {finalVendorId || '❌ MISSING'}</strong><br/>
+            Current URL: {window.location.pathname}
           </div>
         )}
 
@@ -458,7 +480,7 @@ const VendorRegistrationStep2 = ({ vendorId, onNext, onBack }) => {
             <button 
               type="submit" 
               className="next-step-btn"
-              disabled={loading || getUploadedCount() === 0 || !finalVendorId}
+              disabled={loading || !finalVendorId}
             >
               {loading ? (
                 <div className="loading-content">
