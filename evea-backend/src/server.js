@@ -3,7 +3,11 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const { initializeGoogleDrive } = require('./src/services/googleDriveService');
+const helmet = require('helmet');
+const compression = require('compression');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const app = express();
@@ -15,9 +19,31 @@ const vendorRoutes = require('./routes/vendorRoutes');
 
 console.log('🚀 Starting EVEA Backend Server...');
 
-// ==================== MIDDLEWARE ====================
+// ==================== SECURITY MIDDLEWARE ====================
 
-// CORS configuration
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+}));
+
+// Compression
+app.use(compression());
+
+// Data sanitization against NoSQL query injection
+// app.use(mongoSanitize());
+
+// Data sanitization against XSS
+// app.use(xss());
+
+// ==================== CORS CONFIGURATION ====================
+
 const corsOptions = {
   origin: [
     'http://localhost:3000',
@@ -32,7 +58,9 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Rate limiting
+// ==================== RATE LIMITING ====================
+
+// General rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
@@ -51,9 +79,11 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Body parsing middleware
+// ==================== BODY PARSING MIDDLEWARE ====================
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -81,16 +111,56 @@ mongoose.connect(process.env.MONGODB_URI, {
   process.exit(1);
 });
 
+// ==================== GOOGLE DRIVE INITIALIZATION ====================
+
+const initializeServices = async () => {
+  try {
+    console.log('🔧 Initializing external services...');
+    
+    // Initialize Google Drive service
+    if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_DRIVE_FOLDER_ID) {
+      console.log('📁 Initializing Google Drive service...');
+      
+      // CORRECTED: Fixed import path
+      const { initializeGoogleDrive } = require('./services/googleDriveService');
+      await initializeGoogleDrive();
+      console.log('✅ Google Drive service ready');
+    } else {
+      console.log('⚠️ Google Drive configuration missing - documents will not be uploaded');
+      console.log('💡 Required environment variables:');
+      console.log('   - GOOGLE_CLIENT_EMAIL');
+      console.log('   - GOOGLE_PRIVATE_KEY'); 
+      console.log('   - GOOGLE_DRIVE_FOLDER_ID');
+      console.log('📄 Check your .env file and Google Cloud Console setup');
+    }
+    
+  } catch (error) {
+    console.error('❌ External service initialization failed:', error);
+    console.log('⚠️ Server will continue but Google Drive uploads may fail');
+    console.log('🔧 Troubleshooting tips:');
+    console.log('   1. Verify Google service account credentials');
+    console.log('   2. Check Google Drive API is enabled');
+    console.log('   3. Ensure service account has Drive access');
+  }
+};
+
 // ==================== ROUTES ====================
 
-// Health check route
+// Health check route with extended information
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  const healthCheck = {
+    status: 'OK',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
-  });
+    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
+    services: {
+      googleDrive: process.env.GOOGLE_CLIENT_EMAIL ? 'Configured' : 'Not Configured'
+    },
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
+  };
+  
+  res.json(healthCheck);
 });
 
 // Root route
@@ -102,10 +172,14 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/health',
       auth: '/auth',
-      vendors: '/api/vendors'
-    }
+      vendors: '/api/vendors',
+      testGoogleDrive: '/test/google-drive'
+    },
+    documentation: 'https://github.com/your-org/evea-backend'
   });
 });
+
+// ==================== API ROUTES ====================
 
 // Authentication routes (FIXED - no /api prefix to match frontend calls)
 app.use('/auth', authLimiter, authRoutes);
@@ -113,6 +187,44 @@ app.use('/auth', authLimiter, authRoutes);
 // API routes
 app.use('/api/vendors', vendorRoutes);
 // app.use('/api/admin', adminRoutes); // Uncomment when ready
+
+// ==================== GOOGLE DRIVE TEST ENDPOINT ====================
+
+// Test Google Drive endpoint (for debugging and verification)
+app.get('/test/google-drive', async (req, res) => {
+  try {
+    // CORRECTED: Fixed import path
+    const { testGoogleDriveConnection } = require('./services/googleDriveService');
+    await testGoogleDriveConnection();
+    
+    res.json({
+      success: true,
+      message: 'Google Drive connection successful',
+      timestamp: new Date().toISOString(),
+      folderUrl: `https://drive.google.com/drive/folders/${process.env.GOOGLE_DRIVE_FOLDER_ID}`,
+      config: {
+        clientEmail: process.env.GOOGLE_CLIENT_EMAIL ? '✅ Set' : '❌ Missing',
+        privateKey: process.env.GOOGLE_PRIVATE_KEY ? '✅ Set' : '❌ Missing',
+        folderId: process.env.GOOGLE_DRIVE_FOLDER_ID ? '✅ Set' : '❌ Missing'
+      }
+    });
+  } catch (error) {
+    console.error('Google Drive test failed:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Google Drive connection failed',
+      error: error.message,
+      troubleshooting: [
+        'Check Google service account credentials',
+        'Verify Google Drive API is enabled',
+        'Ensure service account has folder access',
+        'Check environment variables are properly set'
+      ]
+    });
+  }
+});
+
+// ==================== ERROR HANDLING ====================
 
 // Catch-all route for undefined endpoints
 app.use((req, res) => {
@@ -123,12 +235,13 @@ app.use((req, res) => {
     availableRoutes: {
       auth: '/auth/*',
       vendors: '/api/vendors/*',
-      health: '/health'
-    }
+      health: '/health',
+      testGoogleDrive: '/test/google-drive'
+    },
+    requestedPath: req.path,
+    method: req.method
   });
 });
-
-// ==================== ERROR HANDLING ====================
 
 // Global error handler
 app.use((error, req, res, next) => {
@@ -147,9 +260,21 @@ app.use((error, req, res, next) => {
   // Mongoose duplicate key error
   if (error.code === 11000) {
     const field = Object.keys(error.keyValue)[0];
+    const value = error.keyValue[field];
     return res.status(400).json({
       success: false,
-      message: `${field} already exists`
+      message: `${field} already exists`,
+      duplicateField: field,
+      duplicateValue: value
+    });
+  }
+
+  // MongoDB connection errors
+  if (error.name === 'MongooseError' || error.name === 'MongoError') {
+    return res.status(503).json({
+      success: false,
+      message: 'Database connection error',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Database unavailable'
     });
   }
 
@@ -168,11 +293,28 @@ app.use((error, req, res, next) => {
     });
   }
 
+  // Multer file upload errors
+  if (error.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({
+      success: false,
+      message: 'File too large',
+      maxSize: '10MB'
+    });
+  }
+
+  if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+    return res.status(400).json({
+      success: false,
+      message: 'Too many files or unexpected file field'
+    });
+  }
+
   // Default error
   res.status(500).json({
     success: false,
     message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+    error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
+    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
   });
 });
 
@@ -180,7 +322,33 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, () => {
+// const initializeServices = async () => {
+//   try {
+//     console.log('🔧 Initializing external services...');
+    
+//     // Initialize Google Drive service
+//     if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_DRIVE_FOLDER_ID) {
+//       console.log('📁 Initializing Google Drive service...');
+      
+//       // CORRECTED: Fixed import path
+//       const { initializeGoogleDrive } = require('./services/googleDriveService');
+//       await initializeGoogleDrive();
+//       console.log('✅ Google Drive service ready');
+//     } else {
+//       console.log('⚠️ Google Drive configuration missing - documents will not be uploaded');
+//       console.log('💡 Required environment variables:');
+//       console.log('   - GOOGLE_CLIENT_EMAIL');
+//       console.log('   - GOOGLE_PRIVATE_KEY'); 
+//       console.log('   - GOOGLE_DRIVE_FOLDER_ID');
+//     }
+    
+//   } catch (error) {
+//     console.error('❌ External service initialization failed:', error);
+//     console.log('⚠️ Server will continue but Google Drive uploads may fail');
+//   }
+// };
+
+const server = app.listen(PORT, async () => {
   console.log(`
     ================================================
     🚀 EVEA Backend Server is RUNNING!
@@ -194,13 +362,29 @@ const server = app.listen(PORT, () => {
     📍 Health Check: http://localhost:${PORT}/health
     🔐 Authentication: http://localhost:${PORT}/auth/*
     👥 Vendors: http://localhost:${PORT}/api/vendors/*
+    🧪 Google Drive Test: http://localhost:${PORT}/test/google-drive
+    ================================================
+  `);
+  
+  // Initialize external services after server starts
+  await initializeServices();
+  
+  console.log(`
+    ================================================
+    ✅ Server fully initialized and ready!
+    📡 API Base URL: http://localhost:${PORT}
+    📋 Health Check: http://localhost:${PORT}/health
+    🔗 Google Drive Folder: ${process.env.GOOGLE_DRIVE_FOLDER_ID ? 
+      `https://drive.google.com/drive/folders/${process.env.GOOGLE_DRIVE_FOLDER_ID}` : 
+      'Not configured'}
     ================================================
   `);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('📴 SIGTERM signal received: closing HTTP server');
+// ==================== GRACEFUL SHUTDOWN ====================
+
+const gracefulShutdown = (signal) => {
+  console.log(`📴 ${signal} signal received: closing HTTP server`);
   server.close(() => {
     console.log('🔌 HTTP server closed');
     mongoose.connection.close(false, () => {
@@ -208,16 +392,24 @@ process.on('SIGTERM', () => {
       process.exit(0);
     });
   });
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('💥 Uncaught Exception:', error);
+  console.log('🚨 Server is shutting down due to uncaught exception');
+  process.exit(1);
 });
 
-process.on('SIGINT', () => {
-  console.log('📴 SIGINT signal received: closing HTTP server');
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (error) => {
+  console.error('💥 Unhandled Rejection:', error);
+  console.log('🚨 Server is shutting down due to unhandled promise rejection');
   server.close(() => {
-    console.log('🔌 HTTP server closed');
-    mongoose.connection.close(false, () => {
-      console.log('📊 MongoDB connection closed');
-      process.exit(0);
-    });
+    process.exit(1);
   });
 });
 
