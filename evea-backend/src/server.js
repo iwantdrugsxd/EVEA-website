@@ -16,6 +16,7 @@ const app = express();
 const authRoutes = require('./routes/authRoutes');
 const vendorRoutes = require('./routes/vendorRoutes');
 // const adminRoutes = require('./routes/adminRoutes'); // Uncomment when ready
+const oauthSetupRoutes = require('./routes/oauthSetupRoutes');
 
 console.log('🚀 Starting EVEA Backend Server...');
 
@@ -111,50 +112,122 @@ mongoose.connect(process.env.MONGODB_URI, {
   process.exit(1);
 });
 
-// ==================== GOOGLE DRIVE INITIALIZATION ====================
+// ==================== GOOGLE DRIVE OAUTH INITIALIZATION ====================
 
 const initializeServices = async () => {
   try {
     console.log('🔧 Initializing external services...');
     
-    // Initialize Google Drive service
-    if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_DRIVE_FOLDER_ID) {
-      console.log('📁 Initializing Google Drive service...');
+    // Check OAuth configuration (NEW - replaces service account check)
+    const hasOAuthConfig = process.env.GOOGLE_OAUTH_CLIENT_ID && 
+                          process.env.GOOGLE_OAUTH_CLIENT_SECRET && 
+                          process.env.GOOGLE_OAUTH_REDIRECT_URI &&
+                          process.env.GOOGLE_DRIVE_FOLDER_ID;
+    
+    if (hasOAuthConfig) {
+      console.log('✅ OAuth configuration found');
       
-      // CORRECTED: Fixed import path
-      const { initializeGoogleDrive } = require('./services/googleDriveService');
-      await initializeGoogleDrive();
-      console.log('✅ Google Drive service ready');
+      if (process.env.GOOGLE_REFRESH_TOKEN) {
+        console.log('📁 Initializing OAuth Google Drive service...');
+        
+        try {
+          const { initializeGoogleDrive } = require('./services/googleDriveService');
+          await initializeGoogleDrive();
+          console.log('✅ OAuth Google Drive service ready');
+        } catch (initError) {
+          console.error('❌ OAuth Google Drive initialization failed:', initError.message);
+          
+          if (initError.message.includes('invalid_grant')) {
+            console.error('🔧 Refresh token may be expired - re-run OAuth setup');
+            console.error('   Visit: http://localhost:5000/setup-google-auth');
+          }
+        }
+      } else {
+        console.log('⚠️ OAuth setup incomplete - GOOGLE_REFRESH_TOKEN missing');
+        console.log('🔧 Complete OAuth setup:');
+        console.log('   1. Visit: http://localhost:5000/setup-google-auth');
+        console.log('   2. Complete authentication flow');
+        console.log('   3. Add refresh token to .env');
+        console.log('   4. Restart server');
+      }
     } else {
-      console.log('⚠️ Google Drive configuration missing - documents will not be uploaded');
-      console.log('💡 Required environment variables:');
-      console.log('   - GOOGLE_CLIENT_EMAIL');
-      console.log('   - GOOGLE_PRIVATE_KEY'); 
+      console.log('⚠️ OAuth configuration missing - documents will not be uploaded');
+      console.log('💡 Required environment variables for OAuth:');
+      console.log('   - GOOGLE_OAUTH_CLIENT_ID');
+      console.log('   - GOOGLE_OAUTH_CLIENT_SECRET');
+      console.log('   - GOOGLE_OAUTH_REDIRECT_URI');
       console.log('   - GOOGLE_DRIVE_FOLDER_ID');
-      console.log('📄 Check your .env file and Google Cloud Console setup');
+      console.log('   - GOOGLE_REFRESH_TOKEN (get via /setup-google-auth)');
+      console.log('📄 Check your .env file and Google Cloud Console OAuth setup');
     }
     
   } catch (error) {
     console.error('❌ External service initialization failed:', error);
     console.log('⚠️ Server will continue but Google Drive uploads may fail');
     console.log('🔧 Troubleshooting tips:');
-    console.log('   1. Verify Google service account credentials');
+    console.log('   1. Verify OAuth credentials in Google Cloud Console');
     console.log('   2. Check Google Drive API is enabled');
-    console.log('   3. Ensure service account has Drive access');
+    console.log('   3. Complete OAuth setup at /setup-google-auth');
   }
 };
 
+// ==================== OAUTH ROUTES ====================
+
+// OAuth setup routes (must be before other routes)
+app.use('/', oauthSetupRoutes);
+
+// OAuth info route for easy access
+app.get('/oauth-info', (req, res) => {
+  const hasOAuthConfig = !!(process.env.GOOGLE_OAUTH_CLIENT_ID && 
+                            process.env.GOOGLE_OAUTH_CLIENT_SECRET);
+  const hasRefreshToken = !!process.env.GOOGLE_REFRESH_TOKEN;
+  
+  res.json({
+    message: 'OAuth setup for Google Drive',
+    status: hasRefreshToken ? 'Ready' : hasOAuthConfig ? 'Needs OAuth Setup' : 'Needs Configuration',
+    setupUrl: 'http://localhost:5000/setup-google-auth',
+    statusUrl: 'http://localhost:5000/oauth-status',
+    instructions: hasOAuthConfig ? [
+      '1. Visit /setup-google-auth to start OAuth flow',
+      '2. Complete Google authentication',
+      '3. Copy refresh token to .env file',
+      '4. Restart server',
+      '5. Test document upload'
+    ] : [
+      '1. Set up OAuth credentials in Google Cloud Console',
+      '2. Add GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET to .env',
+      '3. Then visit /setup-google-auth'
+    ],
+    configuration: {
+      clientId: hasOAuthConfig ? '✅ Set' : '❌ Missing',
+      clientSecret: hasOAuthConfig ? '✅ Set' : '❌ Missing',
+      redirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI ? '✅ Set' : '❌ Missing',
+      refreshToken: hasRefreshToken ? '✅ Set' : '❌ Missing',
+      folderId: process.env.GOOGLE_DRIVE_FOLDER_ID ? '✅ Set' : '❌ Missing'
+    }
+  });
+});
+
 // ==================== ROUTES ====================
 
-// Health check route with extended information
+// Health check route with OAuth information
 app.get('/health', (req, res) => {
+  const hasOAuthConfig = !!(process.env.GOOGLE_OAUTH_CLIENT_ID && 
+                            process.env.GOOGLE_OAUTH_CLIENT_SECRET);
+  const hasRefreshToken = !!process.env.GOOGLE_REFRESH_TOKEN;
+  
   const healthCheck = {
     status: 'OK',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
     services: {
-      googleDrive: process.env.GOOGLE_CLIENT_EMAIL ? 'Configured' : 'Not Configured'
+      googleDrive: hasRefreshToken ? 'OAuth Ready' : hasOAuthConfig ? 'OAuth Configured (Setup Required)' : 'Not Configured'
+    },
+    oauth: {
+      configured: hasOAuthConfig,
+      authenticated: hasRefreshToken,
+      setupUrl: hasOAuthConfig ? '/setup-google-auth' : null
     },
     uptime: process.uptime(),
     memory: process.memoryUsage()
@@ -173,6 +246,9 @@ app.get('/', (req, res) => {
       health: '/health',
       auth: '/auth',
       vendors: '/api/vendors',
+      oauthSetup: '/setup-google-auth',
+      oauthStatus: '/oauth-status',
+      oauthInfo: '/oauth-info',
       testGoogleDrive: '/test/google-drive'
     },
     documentation: 'https://github.com/your-org/evea-backend'
@@ -181,7 +257,7 @@ app.get('/', (req, res) => {
 
 // ==================== API ROUTES ====================
 
-// Authentication routes (FIXED - no /api prefix to match frontend calls)
+// Authentication routes
 app.use('/auth', authLimiter, authRoutes);
 
 // API routes
@@ -190,36 +266,97 @@ app.use('/api/vendors', vendorRoutes);
 
 // ==================== GOOGLE DRIVE TEST ENDPOINT ====================
 
-// Test Google Drive endpoint (for debugging and verification)
+// Test Google Drive endpoint (updated for OAuth)
 app.get('/test/google-drive', async (req, res) => {
   try {
-    // CORRECTED: Fixed import path
+    console.log('🧪 Testing OAuth Google Drive connection...');
+    
+    // Check if OAuth is configured
+    const hasOAuthConfig = !!(process.env.GOOGLE_OAUTH_CLIENT_ID && 
+                              process.env.GOOGLE_OAUTH_CLIENT_SECRET);
+    const hasRefreshToken = !!process.env.GOOGLE_REFRESH_TOKEN;
+    
+    if (!hasOAuthConfig) {
+      return res.status(400).json({
+        success: false,
+        message: 'OAuth not configured',
+        error: 'Missing OAuth credentials',
+        troubleshooting: [
+          'Set up OAuth credentials in Google Cloud Console',
+          'Add GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET to .env',
+          'Visit /oauth-info for detailed setup instructions'
+        ],
+        setupUrl: '/oauth-info'
+      });
+    }
+    
+    if (!hasRefreshToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'OAuth setup incomplete',
+        error: 'Missing refresh token',
+        troubleshooting: [
+          'Complete OAuth setup by visiting /setup-google-auth',
+          'Grant permissions to Google Drive',
+          'Add refresh token to .env file',
+          'Restart server'
+        ],
+        setupUrl: '/setup-google-auth'
+      });
+    }
+    
+    // Test the OAuth connection
     const { testGoogleDriveConnection } = require('./services/googleDriveService');
     await testGoogleDriveConnection();
     
     res.json({
       success: true,
-      message: 'Google Drive connection successful',
+      message: 'OAuth Google Drive connection successful',
       timestamp: new Date().toISOString(),
       folderUrl: `https://drive.google.com/drive/folders/${process.env.GOOGLE_DRIVE_FOLDER_ID}`,
+      authType: 'OAuth 2.0',
       config: {
-        clientEmail: process.env.GOOGLE_CLIENT_EMAIL ? '✅ Set' : '❌ Missing',
-        privateKey: process.env.GOOGLE_PRIVATE_KEY ? '✅ Set' : '❌ Missing',
+        clientId: process.env.GOOGLE_OAUTH_CLIENT_ID ? '✅ Set' : '❌ Missing',
+        clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET ? '✅ Set' : '❌ Missing',
+        redirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI ? '✅ Set' : '❌ Missing',
+        refreshToken: process.env.GOOGLE_REFRESH_TOKEN ? '✅ Set' : '❌ Missing',
         folderId: process.env.GOOGLE_DRIVE_FOLDER_ID ? '✅ Set' : '❌ Missing'
       }
     });
+    
   } catch (error) {
-    console.error('Google Drive test failed:', error);
+    console.error('❌ OAuth Google Drive test failed:', error);
+    
+    let troubleshooting = [
+      'Check OAuth configuration in Google Cloud Console',
+      'Verify Google Drive API is enabled',
+      'Ensure OAuth setup is complete',
+      'Check environment variables are properly set'
+    ];
+    
+    if (error.message.includes('invalid_grant')) {
+      troubleshooting = [
+        'Refresh token has expired',
+        'Re-run OAuth setup at /setup-google-auth',
+        'Get new refresh token',
+        'Update .env file and restart server'
+      ];
+    } else if (error.message.includes('invalid_client')) {
+      troubleshooting = [
+        'OAuth client credentials are invalid',
+        'Check GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET',
+        'Verify credentials in Google Cloud Console',
+        'Ensure OAuth client is properly configured'
+      ];
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Google Drive connection failed',
+      message: 'OAuth Google Drive connection failed',
       error: error.message,
-      troubleshooting: [
-        'Check Google service account credentials',
-        'Verify Google Drive API is enabled',
-        'Ensure service account has folder access',
-        'Check environment variables are properly set'
-      ]
+      authType: 'OAuth 2.0',
+      troubleshooting,
+      setupUrl: '/setup-google-auth'
     });
   }
 });
@@ -236,6 +373,9 @@ app.use((req, res) => {
       auth: '/auth/*',
       vendors: '/api/vendors/*',
       health: '/health',
+      oauthSetup: '/setup-google-auth',
+      oauthStatus: '/oauth-status',
+      oauthInfo: '/oauth-info',
       testGoogleDrive: '/test/google-drive'
     },
     requestedPath: req.path,
@@ -322,32 +462,6 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-// const initializeServices = async () => {
-//   try {
-//     console.log('🔧 Initializing external services...');
-    
-//     // Initialize Google Drive service
-//     if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_DRIVE_FOLDER_ID) {
-//       console.log('📁 Initializing Google Drive service...');
-      
-//       // CORRECTED: Fixed import path
-//       const { initializeGoogleDrive } = require('./services/googleDriveService');
-//       await initializeGoogleDrive();
-//       console.log('✅ Google Drive service ready');
-//     } else {
-//       console.log('⚠️ Google Drive configuration missing - documents will not be uploaded');
-//       console.log('💡 Required environment variables:');
-//       console.log('   - GOOGLE_CLIENT_EMAIL');
-//       console.log('   - GOOGLE_PRIVATE_KEY'); 
-//       console.log('   - GOOGLE_DRIVE_FOLDER_ID');
-//     }
-    
-//   } catch (error) {
-//     console.error('❌ External service initialization failed:', error);
-//     console.log('⚠️ Server will continue but Google Drive uploads may fail');
-//   }
-// };
-
 const server = app.listen(PORT, async () => {
   console.log(`
     ================================================
@@ -362,6 +476,9 @@ const server = app.listen(PORT, async () => {
     📍 Health Check: http://localhost:${PORT}/health
     🔐 Authentication: http://localhost:${PORT}/auth/*
     👥 Vendors: http://localhost:${PORT}/api/vendors/*
+    🔧 OAuth Setup: http://localhost:${PORT}/setup-google-auth
+    📊 OAuth Status: http://localhost:${PORT}/oauth-status
+    ℹ️ OAuth Info: http://localhost:${PORT}/oauth-info
     🧪 Google Drive Test: http://localhost:${PORT}/test/google-drive
     ================================================
   `);
@@ -369,14 +486,28 @@ const server = app.listen(PORT, async () => {
   // Initialize external services after server starts
   await initializeServices();
   
+  const hasOAuthConfig = !!(process.env.GOOGLE_OAUTH_CLIENT_ID && 
+                            process.env.GOOGLE_OAUTH_CLIENT_SECRET);
+  const hasRefreshToken = !!process.env.GOOGLE_REFRESH_TOKEN;
+  
   console.log(`
     ================================================
     ✅ Server fully initialized and ready!
     📡 API Base URL: http://localhost:${PORT}
     📋 Health Check: http://localhost:${PORT}/health
-    🔗 Google Drive Folder: ${process.env.GOOGLE_DRIVE_FOLDER_ID ? 
-      `https://drive.google.com/drive/folders/${process.env.GOOGLE_DRIVE_FOLDER_ID}` : 
-      'Not configured'}
+    
+    🔧 Google Drive OAuth Status:
+    ${hasRefreshToken ? 
+      '✅ OAuth configured - Google Drive ready' : 
+      hasOAuthConfig ?
+        '⚠️ OAuth setup needed - visit /setup-google-auth' :
+        '❌ OAuth not configured - check .env file'
+    }
+    
+    ${!hasRefreshToken ? 
+      `🔗 OAuth Setup: http://localhost:${PORT}/setup-google-auth` : 
+      `🔗 Drive Folder: https://drive.google.com/drive/folders/${process.env.GOOGLE_DRIVE_FOLDER_ID}`
+    }
     ================================================
   `);
 });

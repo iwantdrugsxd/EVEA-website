@@ -1,21 +1,29 @@
 // evea-backend/src/services/googleDriveService.js
+// REPLACE YOUR ENTIRE CURRENT FILE WITH THIS OAUTH VERSION
+
 const { google } = require('googleapis');
 const stream = require('stream');
-const path = require('path');
 
-class GoogleDriveService {
+class OAuthGoogleDriveService {
   constructor() {
     this.drive = null;
+    this.oauth2Client = null;
     this.initialized = false;
   }
 
-  // Initialize Google Drive API
+  // Initialize Google Drive API with OAuth
   async initialize() {
     try {
-      console.log('🔧 Initializing Google Drive Service...');
+      console.log('🔧 Initializing OAuth Google Drive Service...');
 
       // Check required environment variables
-      const requiredEnvVars = ['GOOGLE_CLIENT_EMAIL', 'GOOGLE_PRIVATE_KEY', 'GOOGLE_DRIVE_FOLDER_ID'];
+      const requiredEnvVars = [
+        'GOOGLE_OAUTH_CLIENT_ID', 
+        'GOOGLE_OAUTH_CLIENT_SECRET', 
+        'GOOGLE_OAUTH_REDIRECT_URI',
+        'GOOGLE_DRIVE_FOLDER_ID'
+      ];
+      
       const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
       
       if (missingVars.length > 0) {
@@ -24,85 +32,41 @@ class GoogleDriveService {
 
       console.log('✅ Environment variables check passed');
 
-      // Prepare credentials
-      const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-      
-      // Better private key processing
-      let privateKey = process.env.GOOGLE_PRIVATE_KEY;
-      
-      // Handle if private key is wrapped in quotes
-      if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
-        privateKey = privateKey.slice(1, -1);
-      }
-      
-      // Replace escaped newlines with actual newlines
-      privateKey = privateKey.replace(/\\n/g, '\n');
+      // Create OAuth2 client
+      this.oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_OAUTH_CLIENT_ID,
+        process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+        process.env.GOOGLE_OAUTH_REDIRECT_URI
+      );
 
-      console.log('📧 Client Email:', clientEmail);
-      console.log('🔑 Private Key Length:', privateKey.length);
-      console.log('🔑 Private Key starts with BEGIN:', privateKey.includes('-----BEGIN PRIVATE KEY-----'));
-      console.log('🔑 Private Key ends with END:', privateKey.includes('-----END PRIVATE KEY-----'));
+      console.log('✅ OAuth2 client created');
 
-      // Validate private key format
-      if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
-        console.error('⚠️ Private key format appears invalid - missing BEGIN marker');
-        console.error('🔍 First 50 chars of private key:', privateKey.substring(0, 50));
-        throw new Error('Invalid private key format - missing BEGIN marker');
+      // Check if we have a refresh token
+      if (!process.env.GOOGLE_REFRESH_TOKEN) {
+        console.error('❌ GOOGLE_REFRESH_TOKEN not found in .env');
+        console.error('🔧 You need to complete the one-time OAuth setup');
+        console.error('📋 Steps:');
+        console.error('   1. Start your server');
+        console.error('   2. Visit: http://localhost:5000/setup-google-auth');
+        console.error('   3. Complete OAuth flow');
+        console.error('   4. Copy refresh token to .env');
+        throw new Error('GOOGLE_REFRESH_TOKEN missing - complete OAuth setup first');
       }
 
-      if (!privateKey.includes('-----END PRIVATE KEY-----')) {
-        console.error('⚠️ Private key format appears invalid - missing END marker');
-        console.error('🔍 Last 50 chars of private key:', privateKey.substring(privateKey.length - 50));
-        throw new Error('Invalid private key format - missing END marker');
-      }
-
-      console.log('✅ Private key format validation passed');
-
-      // Create JWT client with SHARED DRIVE SCOPES
-      console.log('🔐 Creating JWT client...');
-      
-      const jwtClient = new google.auth.JWT({
-        email: clientEmail,
-        key: privateKey,
-        scopes: [
-          'https://www.googleapis.com/auth/drive',
-          'https://www.googleapis.com/auth/drive.file'
-        ]
+      // Set credentials with refresh token
+      this.oauth2Client.setCredentials({
+        refresh_token: process.env.GOOGLE_REFRESH_TOKEN
       });
 
-      console.log('✅ JWT client created');
-      console.log('📧 JWT email set to:', jwtClient.email);
-      console.log('🔑 JWT has key:', !!jwtClient.key);
-
-      // Validate that the key was properly set
-      if (!jwtClient.key) {
-        throw new Error('Private key was not properly set on JWT client');
-      }
-
-      // Authorize the client
-      console.log('🔐 Authorizing JWT client...');
-      
-      const authResult = await jwtClient.authorize();
-      console.log('✅ JWT authorization successful');
-      console.log('🎫 Access token received:', !!authResult.access_token);
+      console.log('✅ OAuth credentials set with refresh token');
 
       // Create Drive instance
-      console.log('🚗 Creating Google Drive instance...');
-      
-      try {
-        this.drive = google.drive({ 
-          version: 'v3', 
-          auth: jwtClient 
-        });
-        
-        console.log('✅ Google Drive instance created');
-        console.log('🚗 Drive instance type:', typeof this.drive);
-        console.log('🚗 Drive instance has about method:', !!this.drive.about);
-        
-      } catch (driveError) {
-        console.error('❌ Failed to create Google Drive instance:', driveError);
-        throw new Error(`Drive instance creation failed: ${driveError.message}`);
-      }
+      this.drive = google.drive({ 
+        version: 'v3', 
+        auth: this.oauth2Client 
+      });
+
+      console.log('✅ Google Drive instance created');
 
       this.initialized = true;
 
@@ -110,90 +74,56 @@ class GoogleDriveService {
       console.log('🧪 Testing Google Drive connection...');
       await this.testConnection();
       
-      console.log('✅ Google Drive Service initialized successfully');
+      console.log('✅ OAuth Google Drive Service initialized successfully');
       return true;
 
     } catch (error) {
-      console.error('❌ Google Drive initialization failed:', error);
-      console.error('📊 Error details:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack?.split('\n')[0] // First line of stack trace
-      });
-      throw new Error(`Google Drive initialization failed: ${error.message}`);
+      console.error('❌ OAuth Google Drive initialization failed:', error);
+      throw error;
     }
   }
 
   // Test Google Drive connection
   async testConnection() {
     try {
-      console.log('🔍 Testing Google Drive connection...');
-      
-      // Double-check drive instance
-      if (!this.drive) {
-        throw new Error('Drive instance is null - initialization failed');
+      if (!this.initialized) {
+        await this.initialize();
       }
 
-      if (!this.drive.about) {
-        throw new Error('Drive instance missing about method - API may not be enabled');
-      }
-
-      console.log('🚗 Drive instance validated, making API call...');
+      console.log('🔍 Testing OAuth Google Drive connection...');
       
       const response = await this.drive.about.get({
-        fields: 'user'
+        fields: 'user,storageQuota'
       });
       
       console.log('✅ Google Drive connection test successful');
       console.log('👤 Connected as:', response.data.user?.emailAddress);
       console.log('👤 Display name:', response.data.user?.displayName);
       
-      // Test if we can access the specified folder/shared drive
+      // Test folder access
       const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-      console.log('🔍 Testing access to target folder/drive...');
+      console.log('🔍 Testing access to target folder...');
       
       try {
         const folderResponse = await this.drive.files.get({
           fileId: folderId,
-          fields: 'id,name,mimeType,driveId',
-          supportsAllDrives: true // IMPORTANT: This enables shared drive support
+          fields: 'id,name,mimeType'
         });
         
-        console.log('✅ Target folder/drive accessible:');
+        console.log('✅ Target folder accessible:');
         console.log('📁 Name:', folderResponse.data.name);
         console.log('📁 Type:', folderResponse.data.mimeType);
-        console.log('🌐 Drive Type:', folderResponse.data.driveId ? 'Shared Drive' : 'Regular Drive');
-        
-        if (folderResponse.data.driveId) {
-          console.log('🌐 Shared Drive ID:', folderResponse.data.driveId);
-        }
+        console.log('🎉 OAuth setup successful - can upload to personal drive!');
         
       } catch (accessError) {
-        console.error('❌ Cannot access target folder/drive:', accessError.message);
-        console.error('💡 Make sure the service account has been added to the shared drive with proper permissions');
+        console.error('❌ Cannot access target folder:', accessError.message);
         throw new Error(`Cannot access folder ${folderId}: ${accessError.message}`);
       }
       
       return true;
 
     } catch (error) {
-      console.error('❌ Google Drive connection test failed:', error);
-      console.error('📊 Connection test error details:', {
-        name: error.name,
-        message: error.message,
-        code: error.code,
-        status: error.status
-      });
-      
-      // Provide specific error guidance
-      if (error.code === 403) {
-        console.error('💡 Error 403: Either Google Drive API not enabled OR service account not added to shared drive');
-      } else if (error.code === 401) {
-        console.error('💡 Error 401: Authentication failed - check service account credentials');
-      } else if (error.message.includes('API not enabled')) {
-        console.error('💡 Google Drive API is not enabled in your Google Cloud project');
-      }
-      
+      console.error('❌ OAuth connection test failed:', error);
       throw error;
     }
   }
@@ -210,12 +140,10 @@ class GoogleDriveService {
       const folderName = `${businessName}_${vendorId}`.replace(/[^a-zA-Z0-9_\-\s]/g, '');
       const parentFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
-      // Search for existing folder with shared drive support
+      // Search for existing folder
       const searchResponse = await this.drive.files.list({
         q: `name='${folderName}' and parents in '${parentFolderId}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-        fields: 'files(id, name)',
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true
+        fields: 'files(id, name)'
       });
 
       if (searchResponse.data.files && searchResponse.data.files.length > 0) {
@@ -227,7 +155,7 @@ class GoogleDriveService {
         };
       }
 
-      // Create new folder with shared drive support
+      // Create new folder
       console.log(`📂 Creating new vendor folder: ${folderName}`);
       
       const folderMetadata = {
@@ -238,8 +166,7 @@ class GoogleDriveService {
 
       const createResponse = await this.drive.files.create({
         resource: folderMetadata,
-        fields: 'id, name',
-        supportsAllDrives: true
+        fields: 'id, name'
       });
 
       console.log(`✅ Created new vendor folder: ${createResponse.data.id}`);
@@ -255,14 +182,14 @@ class GoogleDriveService {
     }
   }
 
-  // Upload file to Google Drive with Shared Drive support
+  // Upload file to Google Drive (OAuth - works with personal drive!)
   async uploadFile(file, fileName, folderId = null) {
     try {
       if (!this.initialized) {
         await this.initialize();
       }
 
-      console.log(`📁 Uploading file to Google Drive: ${fileName}`);
+      console.log(`📁 Uploading file to Google Drive (OAuth): ${fileName}`);
       console.log(`📊 File details:`, {
         size: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
         type: file.mimetype,
@@ -304,32 +231,14 @@ class GoogleDriveService {
         body: bufferStream
       };
 
-      console.log('🚀 Starting upload to Google Drive (with shared drive support)...');
+      console.log('🚀 Starting OAuth upload to personal Google Drive...');
 
-      // Upload file with shared drive support - NO RETRY LOGIC for storage quota errors
-      let uploadResponse;
-      
-      try {
-        uploadResponse = await this.drive.files.create({
-          resource: fileMetadata,
-          media: media,
-          fields: 'id,name,webViewLink,webContentLink,size,createdTime,parents',
-          supportsAllDrives: true // CRITICAL: This enables shared drive support
-        });
-      } catch (uploadError) {
-        console.error('❌ Upload failed:', uploadError.message);
-        
-        // Handle specific errors
-        if (uploadError.message.includes('Service Accounts do not have storage quota')) {
-          throw new Error('Service Account storage quota issue. Please ensure you are using a Shared Drive and the service account has been added as a member with proper permissions.');
-        } else if (uploadError.code === 403) {
-          throw new Error('Permission denied. Ensure the service account has access to the target folder/shared drive.');
-        } else if (uploadError.code === 404) {
-          throw new Error('Target folder not found. Check if the folder ID is correct and accessible.');
-        }
-        
-        throw uploadError;
-      }
+      // Upload file with OAuth (works with personal drive!)
+      const uploadResponse = await this.drive.files.create({
+        resource: fileMetadata,
+        media: media,
+        fields: 'id,name,webViewLink,webContentLink,size,createdTime,parents'
+      });
 
       if (!uploadResponse || !uploadResponse.data) {
         throw new Error('Upload response is invalid');
@@ -337,21 +246,9 @@ class GoogleDriveService {
 
       const uploadedFile = uploadResponse.data;
 
-      console.log(`✅ File uploaded successfully to Google Drive`);
+      console.log(`✅ File uploaded successfully to personal Google Drive!`);
       console.log(`🆔 File ID: ${uploadedFile.id}`);
       console.log(`🔗 View Link: ${uploadedFile.webViewLink}`);
-
-      // Verify upload by checking file existence
-      try {
-        await this.drive.files.get({
-          fileId: uploadedFile.id,
-          fields: 'id,name,size',
-          supportsAllDrives: true
-        });
-        console.log('✅ Upload verification successful');
-      } catch (verifyError) {
-        console.warn('⚠️ Upload verification failed:', verifyError.message);
-      }
 
       return {
         fileId: uploadedFile.id,
@@ -365,31 +262,56 @@ class GoogleDriveService {
       };
 
     } catch (error) {
-      console.error('❌ Google Drive upload error:', error);
+      console.error('❌ OAuth upload error:', error);
       
-      // Provide more specific error messages
       let errorMessage = 'Failed to upload to Google Drive';
       
-      if (error.message.includes('Service Account storage quota issue')) {
-        errorMessage = 'Service Account storage quota issue. Use a Shared Drive instead';
-      } else if (error.message.includes('insufficient authentication scopes')) {
-        errorMessage = 'Google Drive authentication scope insufficient';
-      } else if (error.message.includes('quotaExceeded')) {
-        errorMessage = 'Google Drive storage quota exceeded';
-      } else if (error.message.includes('rateLimitExceeded')) {
-        errorMessage = 'Google Drive rate limit exceeded, please try again later';
-      } else if (error.message.includes('File buffer is missing')) {
-        errorMessage = 'File data is missing or corrupted';
-      } else if (error.code === 'ENOTFOUND') {
-        errorMessage = 'Network connection failed';
+      if (error.message.includes('invalid_grant')) {
+        errorMessage = 'OAuth token expired. Please re-authenticate.';
       } else if (error.code === 403) {
-        errorMessage = 'Permission denied - check shared drive access';
-      } else if (error.code === 404) {
-        errorMessage = 'Target folder not found';
+        errorMessage = 'Permission denied. Check OAuth scopes.';
+      } else if (error.code === 401) {
+        errorMessage = 'Authentication failed. Refresh OAuth token.';
       }
       
       throw new Error(`${errorMessage}: ${error.message}`);
     }
+  }
+
+  // Get OAuth authorization URL
+  getAuthUrl() {
+    if (!this.oauth2Client) {
+      this.oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_OAUTH_CLIENT_ID,
+        process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+        process.env.GOOGLE_OAUTH_REDIRECT_URI
+      );
+    }
+
+    const authUrl = this.oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: [
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/drive.metadata'
+      ],
+      prompt: 'consent' // Force consent to get refresh token
+    });
+
+    return authUrl;
+  }
+
+  // Exchange authorization code for tokens
+  async getTokens(code) {
+    if (!this.oauth2Client) {
+      this.oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_OAUTH_CLIENT_ID,
+        process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+        process.env.GOOGLE_OAUTH_REDIRECT_URI
+      );
+    }
+
+    const { tokens } = await this.oauth2Client.getToken(code);
+    return tokens;
   }
 
   // Get file from Google Drive
@@ -399,15 +321,10 @@ class GoogleDriveService {
         await this.initialize();
       }
 
-      console.log(`📥 Retrieving file from Google Drive: ${fileId}`);
-
       const response = await this.drive.files.get({
         fileId: fileId,
-        fields: 'id,name,webViewLink,webContentLink,size,createdTime,mimeType',
-        supportsAllDrives: true
+        fields: 'id,name,webViewLink,webContentLink,size,createdTime,mimeType'
       });
-
-      console.log(`✅ Retrieved file: ${response.data.name}`);
 
       return {
         fileId: response.data.id,
@@ -421,8 +338,8 @@ class GoogleDriveService {
       };
 
     } catch (error) {
-      console.error('❌ Error retrieving file from Google Drive:', error);
-      throw new Error(`Failed to retrieve file from Google Drive: ${error.message}`);
+      console.error('❌ Error retrieving file:', error);
+      throw new Error(`Failed to retrieve file: ${error.message}`);
     }
   }
 
@@ -433,93 +350,52 @@ class GoogleDriveService {
         await this.initialize();
       }
 
-      console.log(`🗑️ Deleting file from Google Drive: ${fileId}`);
-
       await this.drive.files.delete({
-        fileId: fileId,
-        supportsAllDrives: true
+        fileId: fileId
       });
 
       console.log(`✅ File deleted successfully: ${fileId}`);
       return true;
 
     } catch (error) {
-      console.error('❌ Error deleting file from Google Drive:', error);
-      throw new Error(`Failed to delete file from Google Drive: ${error.message}`);
+      console.error('❌ Error deleting file:', error);
+      throw new Error(`Failed to delete file: ${error.message}`);
     }
   }
-
-  // List files in folder
-  async listFiles(folderId, options = {}) {
-    try {
-      if (!this.initialized) {
-        await this.initialize();
-      }
-
-      console.log(`📋 Listing files in folder: ${folderId}`);
-
-      const query = `parents in '${folderId}' and trashed=false`;
-      
-      const response = await this.drive.files.list({
-        q: query,
-        fields: 'files(id,name,webViewLink,size,createdTime,mimeType)',
-        orderBy: options.orderBy || 'createdTime desc',
-        pageSize: options.pageSize || 100,
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true
-      });
-
-      const files = response.data.files || [];
-      console.log(`✅ Found ${files.length} files in folder`);
-
-      return files.map(file => ({
-        fileId: file.id,
-        fileName: file.name,
-        webViewLink: file.webViewLink,
-        size: file.size,
-        createdTime: file.createdTime,
-        mimeType: file.mimeType,
-        driveUrl: `https://drive.google.com/file/d/${file.id}/view`
-      }));
-
-    } catch (error) {
-      console.error('❌ Error listing files:', error);
-      throw new Error(`Failed to list files: ${error.message}`);
-    }
-  }
-  
 }
 
-
 // Create singleton instance
-const googleDriveService = new GoogleDriveService();
+const oauthGoogleDriveService = new OAuthGoogleDriveService();
 
-// Export functions
+// Export functions (same interface as before, so vendor controller doesn't need changes)
 module.exports = {
   // Initialize service
-  initializeGoogleDrive: () => googleDriveService.initialize(),
+  initializeGoogleDrive: () => oauthGoogleDriveService.initialize(),
   
-  // Upload file
+  // Upload file (OAuth version - works with personal drive!)
   uploadToGoogleDrive: (file, fileName, folderId) => 
-    googleDriveService.uploadFile(file, fileName, folderId),
+    oauthGoogleDriveService.uploadFile(file, fileName, folderId),
   
   // Get or create vendor folder
   getOrCreateVendorFolder: (vendorId, businessName) => 
-    googleDriveService.getOrCreateVendorFolder(vendorId, businessName),
+    oauthGoogleDriveService.getOrCreateVendorFolder(vendorId, businessName),
   
   // Get file
   getFileFromGoogleDrive: (fileId) => 
-    googleDriveService.getFile(fileId),
+    oauthGoogleDriveService.getFile(fileId),
   
   // Delete file
   deleteFileFromGoogleDrive: (fileId) => 
-    googleDriveService.deleteFile(fileId),
-  
-  // List files
-  listFilesInFolder: (folderId, options) => 
-    googleDriveService.listFiles(folderId, options),
+    oauthGoogleDriveService.deleteFile(fileId),
   
   // Test connection
   testGoogleDriveConnection: () => 
-    googleDriveService.testConnection()
+    oauthGoogleDriveService.testConnection(),
+
+  // OAuth specific methods
+  getOAuthAuthUrl: () => oauthGoogleDriveService.getAuthUrl(),
+  getOAuthTokens: (code) => oauthGoogleDriveService.getTokens(code),
+  
+  // Get service instance
+  getServiceInstance: () => oauthGoogleDriveService
 };
